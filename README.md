@@ -1,28 +1,37 @@
-# Save Position Manager v2.6
+# Save Position Manager v4.0
 
-A high-performance, feature-rich MoonLoader script for **GTA: San Andreas Multiplayer (SA-MP)**. This tool allows players and developers to save, manage, and teleport to multiple coordinates using a modern **mimgui** interface.
+A high-performance, feature-rich MoonLoader script for **GTA: San Andreas Multiplayer (SA-MP)**. This tool allows players and developers to save, manage, and teleport to multiple coordinates, with advanced **Moneybag Hunting** automation and visualization.
 
 ---
 
 ## Features
 
-*   **Instant Teleportation:** Move to saved locations instantly (supports both on-foot and in-vehicle).
-*   **Teleport Cooldown:** Built-in 10-second cooldown to prevent server-side detection or spam.
-*   **Multi-Slot Saving:** Save an unlimited number of positions with custom names.
-*   **Smart Search:** Quickly filter through your saved positions using the real-time search bar.
-*   **Permanent Storage:** All data is saved in `config/SavedPositions.json`.
-*   **Export/Import:** Easily share your positions or back them up via the Export/Import system (JSON format).
-*   **Modern UI:** Clean and responsive interface built with `mimgui`.
+### 📍 Position Management
+* **Instant Teleportation:** Move to saved locations instantly (on-foot or in-vehicle).
+* **Permanent Storage:** All data is saved in `config/SavedPositions.json`.
+* **Smart Search & Filter:** Search through locations and filter by category.
+* **Route System:** Create and execute sequential teleport routes.
+* **Export/Import:** Share your positions or back them up via JSON.
+* **Advanced UI:** Modern, responsive interface built with `mimgui`.
+
+### 💰 Moneybag Hunt (Automated)
+* **Moneybag ESP:** Highlight nearby pickups (model 1550) with color-coded lines.
+* **Chat Hint Detection:** Automatically detects location hints in chat (e.g., `"Hint: Grove Street"`).
+* **ESP Focus Mode:** Automatically locks your ESP on the detected location to avoid clutter.
+* **Auto-Teleport:** Automatically teleports you to detected moneybags (with a countdown and cooldown).
+* **Mini-Radar:** A circular, rotating radar in the corner showing moneybag positions.
+* **Proximity Pulse:** Visual and audio alerts when a moneybag is very close.
+* **Sound Alerts:** Beeps for hint detection, spawns, and teleports.
 
 ---
 
 ## Installation
 
-1.  Ensure you have MoonLoader installed.
-2.  Download the script files.
-3.  Place `SavePosition.lua` into your `moonloader/` folder.
-4.  Place `SavePosJSON.lua` into your `moonloader/lib/` folder.
-5.  Launch the game!
+1. Ensure you have MoonLoader installed.
+2. Download the script files.
+3. Place `SavePosition.lua` into your `moonloader/` folder.
+4. Place any required libraries in your `moonloader/lib/` folder.
+5. Launch the game!
 
 ---
 
@@ -32,6 +41,7 @@ A high-performance, feature-rich MoonLoader script for **GTA: San Andreas Multip
 | Key | Action |
 | :--- | :--- |
 | **F10** | Toggle the Main Menu |
+| **F9** | Toggle standard ESP (all saved positions) |
 
 ### Chat Commands
 | Command | Description |
@@ -39,38 +49,43 @@ A high-performance, feature-rich MoonLoader script for **GTA: San Andreas Multip
 | `/spos [name]` | Save current position with an optional name |
 | `/lpos [index]` | Teleport to a position by its list index |
 | `/poslist` | Display all saved positions in the chat |
+| `/route` | Manage and execute saved routes |
+| `/autotp` | Toggle automated moneybag teleportation |
+| `/clearfocus` | Manually clear the active ESP focus |
+| `/mbcmd` | Show Moneybag command help |
 
 ---
 
 ## Data Management
 
 ### Exporting
-Clicking **EXPORT Positions** generates a human-readable and JSON-formatted file at:
+Clicking **EXPORT Positions** generates a file at:
 `MoonLoader/config/SavedPositions_Export.txt`
 
 ### Importing
-1.  Open the Import window in the menu.
-2.  Paste the JSON array (e.g., `[{"name": "Grove", "x": ...}]`).
-3.  Click **Import Data**.
+1. Open the Import window in the menu.
+2. Paste the JSON array.
+3. Click **Import Data**.
 *Note: Importing replaces your current list. Always export a backup first!*
 
 ---
 
 ## Dependencies
 
-The script requires the following libraries (included in standard MoonLoader distributions or provided in this repo):
+The script requires the following libraries:
 - `mimgui`
 - `vkeys`
 - `encoding`
 - `ffi`
-- `SavePosJSON` (Custom JSON parser)
+- `samp.events`
 
 ---
 
 ## Author
 
 **Developed by BOJO Dev**
-*Version: 2.6*
+*Version: 4.0*
 
 ---
+
 *Disclaimer: Use teleportation features responsibly. Some servers may have anti-cheat systems that detect coordinate warping.*

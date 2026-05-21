@@ -1,5 +1,5 @@
-[01:19:14.822429] (system)	Session started.
-[01:19:14.822429] (debug)	Module handle: 72A70000
+[04:11:06.718716] (system)	Session started.
+[04:11:06.719705] (debug)	Module handle: 73A30000
 
 MoonLoader v.026.5-beta loaded.
 Developers: FYP, hnnssy, EvgeN 1137
@@ -7,27 +7,23 @@ Developers: FYP, hnnssy, EvgeN 1137
 Copyright (c) 2016, BlastHack Team
 http://blast.hk/moonloader/
 
-[01:19:14.822429] (info)	Working directory: C:\Games\GTA San Andreas\moonloader
-[01:19:14.822429] (debug)	FP Control: 0009001F
-[01:19:14.822429] (debug)	Game: GTA SA 1.0.0.0 US
-[01:19:14.822429] (system)	Installing pre-game hooks...
-[01:19:14.822429] (system)	Hooks installed.
-[01:19:22.711555] (debug)	Initializing opcode handler table
-[01:19:22.711555] (debug)	package.path = C:\Games\GTA San Andreas\moonloader\lib\?.lua;C:\Games\GTA San Andreas\moonloader\lib\?\init.lua;C:\Games\GTA San Andreas\moonloader\?.lua;C:\Games\GTA San Andreas\moonloader\?\init.lua;.\?.lua;C:\Games\GTA San Andreas\moonloader\lib\?.luac;C:\Games\GTA San Andreas\moonloader\lib\?\init.luac;C:\Games\GTA San Andreas\moonloader\?.luac;C:\Games\GTA San Andreas\moonloader\?\init.luac;.\?.luac
-[01:19:22.711555] (debug)	package.cpath = C:\Games\GTA San Andreas\moonloader\lib\?.dll;
-[01:19:22.714901] (system)	Loading script 'C:\Games\GTA San Andreas\moonloader\automath.lua'...
-[01:19:22.714901] (debug)	New script: 07A267A4
-[01:19:22.776397] (system)	Auto Math Detector: Loaded successfully.
-[01:19:22.776397] (system)	Loading script 'C:\Games\GTA San Andreas\moonloader\SavePosition.lua'...
-[01:19:22.776397] (debug)	New script: 07A25544
-[01:19:22.787278] (system)	SavePosition: Loaded successfully.
-[01:19:22.787278] (system)	Loading script 'C:\Games\GTA San Andreas\moonloader\UtilitySuite.lua'...
-[01:19:22.787278] (debug)	New script: 07A25854
-[01:19:22.793688] (system)	UtilitySuite: Loaded successfully.
-[01:19:28.964716] (system)	Installing post-load hooks...
-[01:19:28.964716] (system)	Hooks installed.
-[01:44:11.624264] (system)	Unloading...
-[01:44:11.624264] (system)	Auto Math Detector: Script terminated. (07A267A4)
-[01:44:11.625263] (system)	SavePosition: Script terminated. (07A25544)
-[01:44:11.626264] (system)	UtilitySuite: Script terminated. (07A25854)
-[01:44:11.641212] (system)	Session terminated.
+[04:11:06.720703] (info)	Working directory: D:\Games\Gta San Andreas\GTA San Andreas\moonloader
+[04:11:06.720703] (debug)	FP Control: 0009001F
+[04:11:06.720703] (debug)	Game: GTA SA 1.0.0.0 US
+[04:11:06.720703] (system)	Installing pre-game hooks...
+[04:11:06.724693] (system)	Hooks installed.
+[04:11:09.717966] (debug)	Initializing opcode handler table
+[04:11:09.718965] (debug)	package.path = D:\Games\Gta San Andreas\GTA San Andreas\moonloader\lib\?.lua;D:\Games\Gta San Andreas\GTA San Andreas\moonloader\lib\?\init.lua;D:\Games\Gta San Andreas\GTA San Andreas\moonloader\?.lua;D:\Games\Gta San Andreas\GTA San Andreas\moonloader\?\init.lua;.\?.lua;D:\Games\Gta San Andreas\GTA San Andreas\moonloader\lib\?.luac;D:\Games\Gta San Andreas\GTA San Andreas\moonloader\lib\?\init.luac;D:\Games\Gta San Andreas\GTA San Andreas\moonloader\?.luac;D:\Games\Gta San Andreas\GTA San Andreas\moonloader\?\init.luac;.\?.luac
+[04:11:09.718965] (debug)	package.cpath = D:\Games\Gta San Andreas\GTA San Andreas\moonloader\lib\?.dll;
+[04:11:09.767936] (system)	Loading script 'D:\Games\Gta San Andreas\GTA San Andreas\moonloader\automath.lua'...
+[04:11:09.767936] (debug)	New script: 0ABEF1A4
+[04:11:09.780927] (system)	Auto Math Detector: Loaded successfully.
+[04:11:09.780927] (system)	Loading script 'D:\Games\Gta San Andreas\GTA San Andreas\moonloader\SavePosition.lua'...
+[04:11:09.780927] (debug)	New script: 0ABEF32C
+[04:11:09.818905] (system)	SavePosition: Loaded successfully.
+[04:11:16.067528] (system)	Installing post-load hooks...
+[04:11:16.067528] (system)	Hooks installed.
+[04:12:20.153770] (system)	Unloading...
+[04:12:20.154777] (system)	Auto Math Detector: Script terminated. (0ABEF1A4)
+[04:12:20.155768] (system)	SavePosition: Script terminated. (0ABEF32C)
+[04:12:20.162762] (system)	Session terminated.

@@ -1,6 +1,6 @@
 ﻿--[[
     ┌─────────────────────────────────────────────────────────────────────────┐
-    │                 SAVE POSITION TOOL v4.0 (ULTIMATE)                     │
+    │                 SAVE POSITION TOOL v3.0 (ENHANCED)                     │
     │              MoonLoader Script for SA-MP                               │
     │                                                                        │
     │  Features:                                                             │
@@ -11,26 +11,21 @@
     │  • ESP markers for all saved positions (HUNT MODE)                     │
     │  • Route system (sequential teleports)                                 │
     │  • Auto-backup & duplicate detection                                   │
-    │  • MONEYBAG TRACKER: ESP lines, Radar, and Auto-TP (on chat hint)      │
-    │  • SOUND ALERTS: Beeps for hints, spawns, and auto-teleport            │
-    │  • PROXIMITY PULSE: Visual and audio indicators for nearby moneybags   │
     │                                                                        │
     │  Hotkey: F10 - Menu | F9 - Toggle ESP                                 │
-    │  Commands: /spos, /lpos, /poslist, /route, /clearfocus, /mbcmd        │
+    │  Commands: /spos, /lpos, /poslist, /route                              │
     └─────────────────────────────────────────────────────────────────────────┘
 ]]
 
 script_name("SavePosition")
 script_author("BOJO Dev")
-script_version("4.0")
+script_version("3.0")
 
 -- Required libraries
 require 'lib.moonloader'
 local vkeys = require 'vkeys'
 local imgui = require 'mimgui'
 local ffi = require 'ffi'
-ffi.cdef[[void __stdcall Beep(uint32_t dwFreq, uint32_t dwDuration);]]
-local kernel32 = ffi.load('kernel32')
 local encoding = require 'encoding'
 encoding.default = 'CP1251'
 local u8 = encoding.UTF8
@@ -47,7 +42,7 @@ local CONFIG = {
     ROUTES_FILE = getWorkingDirectory() .. "\\config\\SavedRoutes.json",
     HOTKEY = vkeys.VK_F10,
     ESP_HOTKEY = vkeys.VK_F9,
-    WINDOW_TITLE = "Save Position Manager v4.0",
+    WINDOW_TITLE = "Save Position Manager v3.0",
     MAX_NAME_LENGTH = 64,
     TELEPORT_COOLDOWN = 2,
     AUTO_BACKUP_INTERVAL = 20, -- Backup every 20 saves
@@ -57,14 +52,10 @@ local CONFIG = {
     -- System will automatically extract location from "Hint: (location)" in chat
     -- No hardcoded locations - purely dynamic based on saved positions
     AUTO_TELEPORT_KEYWORDS = {
-        "goldpot",
-        "hunt begins",
-        "race:",
-        "moneybag",
-        "money bag",
-        "bag of money",
-        "bag of cash",
-        "/find",
+        "GoldPOT",
+        "Hunt begins",
+        "Race:",
+        -- Add more event keywords here
     },
     AUTO_TELEPORT_DELAY_MIN = 4, -- Minimum delay (seconds)
     AUTO_TELEPORT_DELAY_MAX = 5, -- Maximum delay (seconds)
@@ -82,9 +73,20 @@ local CONFIG = {
         ROUTE = imgui.ImVec4(0.5, 0.0, 0.8, 1.0)
     },
     
+    CATEGORIES = {
+        "All", "Events", "Spots", "Safe Zones", "Resources", "Custom"
+    },
+    
     ESP_COLORS = {
         DEFAULT = 0xFFFFFFFF,
-        FAVORITE = 0xFFFFD700
+        FAVORITE = 0xFFFFD700,
+        CATEGORY = {
+            Events = 0xFFFF0000,
+            Spots = 0xFF00FF00,
+            ["Safe Zones"] = 0xFF0000FF,
+            Resources = 0xFFFFFF00,
+            Custom = 0xFFFF00FF
+        }
     }
 }
 
@@ -92,9 +94,8 @@ local CONFIG = {
 -- STATE VARIABLES
 -- ─────────────────────────────────────────────────────────────────────────────
 
--- Fonts for ESP rendering
+-- Font for ESP rendering (must be global)
 local font = nil
-local espFont = nil
 
 local mainWindow = imgui.new.bool(false)
 local savedPositions = {}
@@ -110,24 +111,10 @@ local teleportCooldown = imgui.new.int(0)
 local saveCounter = 0
 
 -- New UI state variables
+local selectedCategory = imgui.new.int(0) -- 0 = All
 local sortMode = imgui.new.int(0) -- 0=None, 1=Name, 2=Date, 3=Distance
 local showESP = imgui.new.bool(false)
 local espDistance = imgui.new.float(10000.0) -- Default 10km (entire map)
-
--- Moneybag Tracker (model 1550 pickup ESP)
-local showMoneybags = imgui.new.bool(false)
-local showMBRadar = imgui.new.bool(true)
-local autoMoneybagTP = imgui.new.bool(false)
-local soundAlert = imgui.new.bool(true)
-local moneyBags = {}
-local moneybagTPPending = false
-local moneybagTPTime = 0
-local moneybagTPDelay = 3
-local moneybagTPCooldown = 0
-local moneybagPendingX = 0
-local moneybagPendingY = 0
-local moneybagPendingZ = 0
-local lastProxBeep = 0
 local showDistance = imgui.new.bool(true)
 local showFavoritesOnly = imgui.new.bool(false)
 
@@ -151,11 +138,6 @@ local autoTeleportPending = false
 local pendingSearchTerms = {}
 local currentTeleportDelay = 0
 local targetPositionName = ""
-
--- ESP Focus Mode (moneybag/event location highlighting)
-local espFocusPosition = nil
-local espFocusTime = 0
-local ESP_FOCUS_DURATION = 60 -- Auto-clear after 60s
 
 -- Import/Export variables
 local importText = imgui.new.char[10000]("")
@@ -344,24 +326,26 @@ local function findBestMatchPosition(searchTerms)
         end
     end
     
-    -- Only return if score is decent (at least 20 = one term match)
-    if highestScore >= 20 then
-        local bestMatchRatio = 0
-        if bestMatch then
-            local posName = bestMatch.name:lower()
-            local totalWords = #searchTerms
-            local matched = 0
-            for _, term in ipairs(searchTerms) do
-                if posName:find(term:lower(), 1, true) then
-                    matched = matched + 1
-                end
-            end
-            bestMatchRatio = matched / totalWords
+    -- Debug: show top 3 candidates
+    if #candidates > 0 then
+        -- Sort by score
+        table.sort(candidates, function(a, b) return a.score > b.score end)
+        
+        sampAddChatMessage("{808080}[Debug] Search: \"" .. table.concat(searchTerms, " ") .. "\"", 0xFFFFFFFF)
+        
+        for i = 1, math.min(3, #candidates) do
+            local c = candidates[i]
+            sampAddChatMessage(string.format("{808080}[Debug] #%d: %s (score: %d, matched: %.1f/%d words)", 
+                i, c.pos.name, c.score, c.matchedWords, #searchTerms), 0xFFFFFFFF)
         end
-        return bestMatch, bestMatchRatio
     end
     
-    return nil, 0
+    -- Only return if score is decent (at least 20 = one term match)
+    if highestScore >= 20 then
+        return bestMatch
+    end
+    
+    return nil
 end
 
 local function detectKeywordInMessage(text)
@@ -526,6 +510,7 @@ local function loadPositionsFromFile()
             for i, pos in ipairs(savedPositions) do
                 if not pos.timestamp then pos.timestamp = os.time() end
                 if pos.favorite == nil then pos.favorite = false end
+                if not pos.category then pos.category = "Custom" end
             end
             
             return true
@@ -814,12 +799,6 @@ end
 -- NEW ENHANCED FEATURES
 -- ─────────────────────────────────────────────────────────────────────────────
 
--- Sound alert helper
-function playBeep(freq, duration)
-    if not soundAlert[0] then return end
-    xpcall(function() kernel32.Beep(freq or 800, duration or 150) end, function() end)
-end
-
 -- Calculate distance between two 3D points
 local function calculateDistance(x1, y1, z1, x2, y2, z2)
     local dx = x2 - x1
@@ -891,17 +870,30 @@ local function toggleFavorite(index)
     return false
 end
 
+-- Set position category
+local function setPositionCategory(index, category)
+    if savedPositions[index] then
+        savedPositions[index].category = category
+        savePositionsToFile()
+        return true
+    end
+    return false
+end
+
 -- Sort positions function
 local function getSortedPositions()
     local filtered = {}
     local filterText = ffi.string(searchFilter):lower()
+    local catIndex = selectedCategory[0]
+    local selectedCat = CONFIG.CATEGORIES[catIndex + 1]
     
     -- Apply filters
     for i, pos in ipairs(savedPositions) do
         local nameMatch = filterText == "" or (pos.name and pos.name:lower():find(filterText, 1, true))
+        local catMatch = selectedCat == "All" or pos.category == selectedCat
         local favMatch = not showFavoritesOnly[0] or pos.favorite
         
-        if nameMatch and favMatch then
+        if nameMatch and catMatch and favMatch then
             table.insert(filtered, {index = i, pos = pos})
         end
     end
@@ -1040,91 +1032,56 @@ local function renderPositionESP()
     
     local playerX, playerY, playerZ = getCharCoordinates(PLAYER_PED)
     local maxDist = espDistance[0]
-    local scrW, scrH = getScreenResolution()
     local foundCount = 0
     
-    -- Check ESP Focus (moneybag/event mode — only show target location)
-    local focusDist = nil
-    if espFocusPosition then
-        focusDist = calculateDistance(playerX, playerY, playerZ, espFocusPosition.x, espFocusPosition.y, espFocusPosition.z)
-        local elapsed = os.clock() - espFocusTime
+    for i, pos in ipairs(savedPositions) do
+        local distance = calculateDistance(playerX, playerY, playerZ, pos.x, pos.y, pos.z)
         
-        -- Auto-clear: arrived within 10m or timeout
-        if focusDist < 10 or elapsed > ESP_FOCUS_DURATION then
-            espFocusPosition = nil
-            espFocusTime = 0
-        end
-    end
-    
-    if espFocusPosition then
-        -- FOCUS MODE: render only the focused position
-        repeat
-        local a, b, c = convert3DCoordsToScreen(espFocusPosition.x, espFocusPosition.y, espFocusPosition.z)
-        local sx, sy
-        if type(a) == "boolean" then
-            if not a then break end
-            sx, sy = b, c
-        else
-            sx, sy = a, b
-        end
-        if not (sx and sy) then break end
-        
-        -- Pulsing orange highlight
-        local pulse = 0.5 + 0.5 * math.sin(os.clock() * 4)
-        local alpha = math.floor(0xAA + pulse * 0x55)
-        local focusColor = (alpha * 0x1000000) + 0xFFA500
-        local focusLineColor = (math.floor(0x66 * pulse) * 0x1000000) + 0xFFA500
-        local displayName = espFocusPosition.name or "FOCUS"
-        local distText = string.format("[%.0fm]", focusDist)
-        
-        if sx > 0 and sx < scrW and sy > 0 and sy < scrH then
-            foundCount = 1
-            -- Thick pulsing line
-            renderDrawLine(scrW / 2, scrH, sx, sy, 2.5, focusLineColor)
-            renderDrawLine(scrW / 2, scrH, sx, sy, 1.5, focusColor)
-            renderDrawPolygon(sx - 5, sy - 5, 10, 10, 6, 0, focusColor)
-            if espFont then
-                renderFontDrawText(espFont, "~ " .. displayName, sx + 8, sy - 16, focusColor)
-                renderFontDrawText(espFont, distText, sx + 8, sy + 4, 0xFFFFFFFF)
-            end
-        else
-            local edgeX, edgeY
-            if sx < 0 then
-                edgeX = 10
-                edgeY = math.max(50, math.min(scrH - 10, sy * (scrW / (scrW - sx))))
-            elseif sx > scrW then
-                edgeX = scrW - 10
-                edgeY = math.max(50, math.min(scrH - 10, sy * (scrW / sx)))
-            else
-                edgeX = math.max(10, math.min(scrW - 10, sx))
-                if sy < 0 then edgeY = 10 else edgeY = scrH - 10 end
-            end
-            if not edgeY then
-                if sy < 0 then
-                    edgeY = 10
-                    edgeX = math.max(10, math.min(scrW - 10, sx * (scrH / (scrH - sy))))
-                elseif sy > scrH then
-                    edgeY = scrH - 10
-                    edgeX = math.max(10, math.min(scrW - 10, sx * (scrH / sy)))
-                end
-            end
-            if edgeX and edgeY then
-                renderDrawLine(scrW / 2, scrH, edgeX, edgeY, 2.0, focusLineColor)
-                if espFont then
-                    renderFontDrawText(espFont, "~ " .. displayName, edgeX - 35, edgeY - 10, focusColor)
-                    renderFontDrawText(espFont, distText, edgeX - 35, edgeY + 6, 0xFFFFFFFF)
+        if distance <= maxDist then
+            local result, screenX, screenY = convert3DCoordsToScreen(pos.x, pos.y, pos.z)
+            
+            if result and screenX and screenY then
+                local scrW, scrH = getScreenResolution()
+                
+                -- Check if on screen
+                if screenX > 0 and screenX < scrW and screenY > 0 and screenY < scrH then
+                    foundCount = foundCount + 1
+                    
+                    -- Determine color based on category/favorite
+                    local colorARGB = 0xFFFFFFFF -- White
+                    if pos.favorite then
+                        colorARGB = 0xFFFFD700 -- Gold
+                    elseif pos.category == "Events" then
+                        colorARGB = 0xFFFF0000 -- Red
+                    elseif pos.category == "Spots" then
+                        colorARGB = 0xFF00FF00 -- Green
+                    elseif pos.category == "Safe Zones" then
+                        colorARGB = 0xFF0000FF -- Blue
+                    end
+                    
+                    -- Build text to display
+                    local displayName = pos.name or ("Pos " .. i)
+                    local distText = string.format("[%.0fm]", distance)
+                    local fullText = displayName .. "\n" .. distText
+                    
+                    -- Use renderDrawPolygon to draw a marker box
+                    renderDrawPolygon(screenX - 3, screenY - 3, 6, 6, 4, 0, colorARGB)
+                    
+                    -- Try using regular renderDrawText
+                    if font then
+                        renderFontDrawText(font, displayName, screenX + 5, screenY - 10, colorARGB)
+                        renderFontDrawText(font, distText, screenX + 5, screenY + 5, 0xFFFFFFFF)
+                    end
                 end
             end
         end
-        until true
-        
-        printStringNow(string.format("~y~FOCUS: ~w~%s ~r~~h~(%.0fm)", espFocusPosition.name or "?", focusDist), 500)
-        return
     end
     
-    -- No focus active — show waiting message
-    if showESP[0] then
-        printStringNow("~y~ESP: waiting for hint...", 500)
+    -- Debug: show ESP status on screen
+    if foundCount > 0 then
+        printStringNow(string.format("~g~ESP: ~w~%d positions visible", foundCount), 100)
+    else
+        printStringNow("~y~ESP ON ~w~- No positions in range", 100)
     end
 end
 
@@ -1247,7 +1204,8 @@ local function renderMenu()
                 interior = interior,
                 inVehicle = inVehicle,
                 timestamp = os.time(),
-                favorite = false
+                favorite = false,
+                category = "Custom"
             }
             
             table.insert(savedPositions, newPos)
@@ -1366,48 +1324,20 @@ local function renderMenu()
         imgui.SetTooltip("Set to 10000+ to see entire map")
     end
     
-    -- Moneybag Tracker toggle
-    local mbColor = showMoneybags[0] and imgui.ImVec4(0.9, 0.7, 0.0, 1.0) or imgui.ImVec4(0.5, 0.5, 0.5, 0.6)
-    imgui.PushStyleColor(imgui.Col.Button, mbColor)
-    if imgui.Button(showMoneybags[0] and "Moneybags: ON ($)" or "Moneybags: OFF", imgui.ImVec2(150, 25)) then
-        showMoneybags[0] = not showMoneybags[0]
-    end
-    imgui.PopStyleColor()
-    if imgui.IsItemHovered() then
-        imgui.SetTooltip("Track active moneybag pickups (model 1550) within ~300m")
-    end
+    imgui.Separator()
+    
+    -- Category Filter
+    imgui.Text("Category:")
     imgui.SameLine()
-    local atpColor = autoMoneybagTP[0] and imgui.ImVec4(0.2, 0.8, 0.2, 1.0) or imgui.ImVec4(0.5, 0.5, 0.5, 0.6)
-    imgui.PushStyleColor(imgui.Col.Button, atpColor)
-    if imgui.Button(autoMoneybagTP[0] and "AutoTP: ON" or "AutoTP: OFF", imgui.ImVec2(100, 25)) then
-        autoMoneybagTP[0] = not autoMoneybagTP[0]
+    local currentCat = CONFIG.CATEGORIES[selectedCategory[0] + 1]
+    if imgui.Button(currentCat .. "##CatBtn", imgui.ImVec2(120, 20)) then
+        selectedCategory[0] = (selectedCategory[0] + 1) % #CONFIG.CATEGORIES
     end
-    imgui.PopStyleColor()
     if imgui.IsItemHovered() then
-        imgui.SetTooltip("Auto-teleport to nearest moneybag every few seconds")
-    end
-    imgui.SameLine()
-    local soundColor = soundAlert[0] and imgui.ImVec4(0.2, 0.6, 0.8, 1.0) or imgui.ImVec4(0.5, 0.5, 0.5, 0.6)
-    imgui.PushStyleColor(imgui.Col.Button, soundColor)
-    if imgui.Button(soundAlert[0] and "Sound: ON" or "Sound: OFF", imgui.ImVec2(90, 25)) then
-        soundAlert[0] = not soundAlert[0]
-    end
-    imgui.PopStyleColor()
-    if imgui.IsItemHovered() then
-        imgui.SetTooltip("Beep on hint detection and moneybag spawn")
-    end
-    imgui.SameLine()
-    local radarColor = showMBRadar[0] and imgui.ImVec4(0.3, 0.6, 0.9, 1.0) or imgui.ImVec4(0.5, 0.5, 0.5, 0.6)
-    imgui.PushStyleColor(imgui.Col.Button, radarColor)
-    if imgui.Button(showMBRadar[0] and "Radar: ON" or "Radar: OFF", imgui.ImVec2(90, 25)) then
-        showMBRadar[0] = not showMBRadar[0]
-    end
-    imgui.PopStyleColor()
-    if imgui.IsItemHovered() then
-        imgui.SetTooltip("Show mini radar for moneybag positions (bottom-right)")
+        imgui.SetTooltip("Click to cycle through categories")
     end
     
-    imgui.Separator()
+    imgui.SameLine()
     
     -- Sort Mode
     imgui.Text("Sort:")
@@ -1451,7 +1381,8 @@ local function renderMenu()
         
         -- Add favorite star to header
         local favIcon = pos.favorite and "★ " or ""
-        local headerText = string.format("%s%d. %s", favIcon, i, posName)
+        local catIcon = pos.category and ("[" .. pos.category .. "] ") or ""
+        local headerText = string.format("%s%s%d. %s", favIcon, catIcon, i, posName)
         
         -- Calculate distance
         local distance = getDistanceToPosition(pos)
@@ -1640,9 +1571,8 @@ function main()
         repeat wait(50) until isSampLoaded() and isSampAvailable()
     end
     
-    -- Create fonts for ESP rendering
-    font = renderCreateFont("Arial", 10, 5)
-    espFont = renderCreateFont("Arial", 12, 5)
+    -- Create font for ESP rendering
+    font = renderCreateFont("Arial", 9, 5)
     
     -- Load saved positions from file
     if loadPositionsFromFile() then
@@ -1736,18 +1666,8 @@ function main()
         sampAddChatMessage("{00BFFF}[Info]{FFFFFF} Detects: GoldPOT, Hunt, Events in chat", 0xFFFFFFFF)
     end)
     
-    sampRegisterChatCommand("clearfocus", function()
-        if espFocusPosition then
-            espFocusPosition = nil
-            espFocusTime = 0
-            sampAddChatMessage("{00FF00}[Focus]{FFFFFF} ESP focus cleared", 0xFFFFFFFF)
-        else
-            sampAddChatMessage("{FFFF00}[Focus]{FFFFFF} No active ESP focus", 0xFFFFFFFF)
-        end
-    end)
-    
-    sampAddChatMessage("{FFFF00}F10 menu | F9 ESP | /spos /lpos /poslist /autotp /clearfocus", 0xFFFFFFFF)
-    sampAddChatMessage("{00BFFF}[Info]{FFFFFF} F10 > Moneybags: ON to track $ pickups (model 1550)", 0xFFFFFFFF)
+    sampAddChatMessage("{FFFF00}Press F10 for menu | F9 for ESP | Commands: /spos /lpos /poslist /autotp", 0xFFFFFFFF)
+    sampAddChatMessage("{00BFFF}[Info]{FFFFFF} NEW: ESP Hunt Mode, Categories, Sorting, Favorites, Routes!", 0xFFFFFFFF)
     if autoTeleportEnabled[0] then
         sampAddChatMessage("{00FF00}[AutoTP]{FFFFFF} Auto-Teleport is ENABLED", 0xFFFFFFFF)
     end
@@ -1763,65 +1683,6 @@ function main()
         
         -- Render ESP markers
         renderPositionESP()
-        
-        -- Render moneybag pickups (model 1550)
-        renderMoneybagESP()
-        renderMoneybagRadar()
-
-        -- Proximity beep (every 2s when within 30m)
-        if showMoneybags[0] and soundAlert[0] then
-            local mbPx, mbPy, mbPz = getCharCoordinates(PLAYER_PED)
-            local nearBag = false
-            for id, pos in pairs(moneyBags) do
-                if calculateDistance(mbPx, mbPy, mbPz, pos.x, pos.y, pos.z) < 30 then
-                    nearBag = true
-                    break
-                end
-            end
-            if nearBag then
-                if os.clock() - (lastProxBeep or 0) > 2 then
-                    playBeep(1000, 80)
-                    lastProxBeep = os.clock()
-                end
-            end
-        end
-        
-        -- Moneybag auto-teleport with countdown + cooldown
-        if autoMoneybagTP[0] and not moneybagTPPending then
-            local now = os.clock()
-            if now >= moneybagTPCooldown then
-                local mbPx, mbPy, mbPz = getCharCoordinates(PLAYER_PED)
-                local nearestDist, nearestPos
-                for id, pos in pairs(moneyBags) do
-                    local d = calculateDistance(mbPx, mbPy, mbPz, pos.x, pos.y, pos.z)
-                    if not nearestDist or d < nearestDist then
-                        nearestDist = d
-                        nearestPos = pos
-                    end
-                end
-                if nearestPos then
-                    moneybagPendingX = nearestPos.x
-                    moneybagPendingY = nearestPos.y
-                    moneybagPendingZ = nearestPos.z
-                    moneybagTPPending = true
-                    moneybagTPTime = os.clock()
-                    sampAddChatMessage(string.format("{FFD700}[MB]{FFFFFF} TP to moneybag in %ds...", moneybagTPDelay), -1)
-                end
-            end
-        end
-        if moneybagTPPending then
-            local remaining = moneybagTPDelay - (os.clock() - moneybagTPTime)
-            if remaining > 0 then
-                printStringNow(string.format("~y~MB TP in ~w~%d~y~s~w~!", math.ceil(remaining)), 500)
-            else
-                playBeep(800, 100)
-                setCharCoordinates(PLAYER_PED, moneybagPendingX, moneybagPendingY, moneybagPendingZ)
-                restoreCameraJumpcut()
-                moneybagTPPending = false
-                moneybagTPCooldown = os.clock() + 5
-                sampAddChatMessage("{FFD700}[MB]{FFFFFF} Teleported to moneybag!", -1)
-            end
-        end
         
         -- Check for pending auto-teleport
         if autoTeleportPending and autoTeleportEnabled[0] then
@@ -1873,279 +1734,40 @@ function main()
 end
 
 -- ─────────────────────────────────────────────────────────────────────────────
--- MONEYBAG PICKUP TRACKING (model 1550)
--- ─────────────────────────────────────────────────────────────────────────────
-
-function sampev.onCreatePickup(id, model, pickupType, position)
-    if model == 1550 then
-        moneyBags[id] = {x = position.x, y = position.y, z = position.z}
-        playBeep(440, 100)
-    end
-end
-
-function sampev.onDestroyPickup(id)
-    moneyBags[id] = nil
-end
-
-function sampev.onSendPickedUpPickup(pickupId)
-    moneyBags[pickupId] = nil
-end
-
--- ─────────────────────────────────────────────────────────────────────────────
--- MONEYBAG ESP RENDERING
--- ─────────────────────────────────────────────────────────────────────────────
-
-function renderMoneybagESP()
-    if not showMoneybags[0] then return end
-    if not next(moneyBags) then return end
-
-    local px, py, pz = getCharCoordinates(PLAYER_PED)
-    local scrW, scrH = getScreenResolution()
-    local bagCount = 0
-    local nearestDist = 999999.0
-    local now = os.clock()
-
-    for id, pos in pairs(moneyBags) do
-        repeat
-        local dist = calculateDistance(px, py, pz, pos.x, pos.y, pos.z)
-        if dist < nearestDist then nearestDist = dist end
-        bagCount = bagCount + 1
-
-        local a, b, c = convert3DCoordsToScreen(pos.x, pos.y, pos.z)
-        local sx, sy
-        if type(a) == "boolean" then
-            if not a then break end
-            sx, sy = b, c
-        else
-            sx, sy = a, b
-        end
-        if not (sx and sy) then break end
-
-        -- Proximity pulse
-        local pulse = 0
-        local pulseSpeed = 0
-        if dist < 30 then
-            pulseSpeed = 8
-            pulse = 0.3 + 0.7 * math.abs(math.sin(now * pulseSpeed))
-        elseif dist < 60 then
-            pulseSpeed = 5
-            pulse = 0.5 + 0.5 * math.abs(math.sin(now * pulseSpeed))
-        end
-
-        -- Smooth color: green < 80 → yellow < 300 → red > 800
-        local r, g, b
-        if dist < 80 then
-            r, g, b = 0, 255, 0
-        elseif dist < 300 then
-            local t = (dist - 80) / 220
-            r, g, b = math.floor(255 * t), 255, math.floor(255 * (1 - t))
-        elseif dist < 800 then
-            local t = (dist - 300) / 500
-            r, g, b = 255, math.floor(255 * (1 - t)), 0
-        else
-            r, g, b = 255, 50, 50
-        end
-        local baseAlpha = dist > 1000 and 0xAA or 0xFF
-        local alpha = pulse > 0 and math.floor(baseAlpha * (0.5 + 0.5 * pulse)) or baseAlpha
-        local color = (alpha * 0x1000000) + (r * 0x10000) + (g * 0x100) + b
-        local glowColor = ((math.floor(alpha * 0.3) % 256) * 0x1000000) + (r * 0x10000) + (g * 0x100) + b
-        local textColor = (0xFF * 0x1000000) + (r * 0x10000) + (g * 0x100) + b
-
-        -- Pulsing size and line width
-        local markerSize = pulse > 0 and 4 + math.floor(6 * pulse) or 4
-        local lineWidth = pulse > 0 and 1.5 + 3.0 * pulse or 1.5
-
-        if sx > 0 and sx < scrW and sy > 0 and sy < scrH then
-            -- Glow line
-            renderDrawLine(scrW / 2, scrH, sx, sy, lineWidth + 2.5, glowColor)
-            renderDrawLine(scrW / 2, scrH, sx, sy, lineWidth, color)
-            -- Marker
-            renderDrawPolygon(sx - markerSize, sy - markerSize, markerSize * 2, markerSize * 2, 4, 0, color)
-            local label = dist < 30 and string.format("$ %.0fm!", dist) or string.format("$ %.0fm", dist)
-            if espFont then
-                renderFontDrawText(espFont, label, sx + 7, sy - 9, 0x80000000)
-                renderFontDrawText(espFont, label, sx + 6, sy - 10, textColor)
-            end
-        else
-            local ex = math.max(15, math.min(scrW - 15, sx))
-            local ey = math.max(55, math.min(scrH - 55, sy))
-            renderDrawLine(scrW / 2, scrH, ex, ey, 1.5 + pulse, 0x44FFFF00)
-            renderDrawLine(scrW / 2, scrH, ex, ey, 0.5 + pulse, 0x88FFFF00)
-            if espFont then
-                renderFontDrawText(espFont, string.format("$ %.0fm", dist), ex + 9, ey - 7, 0x80000000)
-                renderFontDrawText(espFont, string.format("$ %.0fm", dist), ex + 8, ey - 8, 0xAAFFFF00)
-            end
-        end
-        until true
-    end
-
-    -- Top-right HUD
-    if espFont then
-        local hudX, hudY = scrW - 15, 25
-        if bagCount > 0 then
-            renderFontDrawText(espFont, string.format("$ BAGS: %d", bagCount), hudX - 95, hudY - 1, 0x80000000)
-            renderFontDrawText(espFont, string.format("$ BAGS: %d", bagCount), hudX - 96, hudY - 2, 0xFFFFFF00)
-            local nearText = string.format("Nearest: %dm", math.floor(nearestDist))
-            if nearestDist < 30 then
-                renderFontDrawText(espFont, nearText .. " !", hudX - 125, hudY + 13, 0x80000000)
-                renderFontDrawText(espFont, nearText .. " !", hudX - 126, hudY + 12, 0xFFFF4444)
-            else
-                renderFontDrawText(espFont, nearText, hudX - 110, hudY + 13, 0x80000000)
-                renderFontDrawText(espFont, nearText, hudX - 111, hudY + 12, 0xFFFFFFFF)
-            end
-        end
-    end
-end
-
--- ─────────────────────────────────────────────────────────────────────────────
--- MONEYBAG MINI-RADAR
--- ─────────────────────────────────────────────────────────────────────────────
-
-function renderMoneybagRadar()
-    if not showMoneybags[0] or not showMBRadar[0] then return end
-
-    local px, py, pz = getCharCoordinates(PLAYER_PED)
-    local scrW, scrH = getScreenResolution()
-    local cx, cy = scrW - 120, scrH - 120
-    local radius = 90
-    local zoom = 150.0
-
-    -- Filled circle background (horizontal scanlines)
-    for dy = -radius, radius do
-        local hw = math.sqrt(radius * radius - dy * dy)
-        renderDrawLine(cx - hw, cy + dy, cx + hw, cy + dy, 1.0, 0x88000000)
-    end
-
-    -- Outer ring (24 segments)
-    local steps = 24
-    for i = 1, steps do
-        local a1 = (i-1) / steps * math.pi * 2
-        local a2 = i / steps * math.pi * 2
-        renderDrawLine(
-            cx + math.cos(a1) * radius, cy + math.sin(a1) * radius,
-            cx + math.cos(a2) * radius, cy + math.sin(a2) * radius,
-            1.5, 0xCCFFFFFF
-        )
-    end
-
-    -- Inner ring (50% radius)
-    local ir = radius * 0.5
-    for i = 1, steps do
-        local a1 = (i-1) / steps * math.pi * 2
-        local a2 = i / steps * math.pi * 2
-        renderDrawLine(
-            cx + math.cos(a1) * ir, cy + math.sin(a1) * ir,
-            cx + math.cos(a2) * ir, cy + math.sin(a2) * ir,
-            0.5, 0x66FFFFFF
-        )
-    end
-
-    -- Crosshairs
-    renderDrawLine(cx - radius, cy, cx + radius, cy, 0.5, 0x66FFFFFF)
-    renderDrawLine(cx, cy - radius, cx, cy + radius, 0.5, 0x66FFFFFF)
-
-    -- Cardinal direction labels (rotated by player heading)
-    local heading = math.rad(getCharHeading(PLAYER_PED))
-    local dirs = {{0, "N"}, {math.pi / 2, "E"}, {math.pi, "S"}, {-math.pi / 2, "W"}}
-    for _, d in ipairs(dirs) do
-        local a = d[1] - heading
-        local lx = cx + math.cos(a) * (radius - 14)
-        local ly = cy + math.sin(a) * (radius - 14)
-        if espFont then
-            renderFontDrawText(espFont, d[2], lx - 5, ly - 7, 0xFFFFFFFF)
-        end
-    end
-
-    -- Player dot (center, blue diamond)
-    renderDrawPolygon(cx - 4, cy - 4, 8, 8, 4, 45, 0xFF00BFFF)
-
-    -- Moneybag dots
-    for id, pos in pairs(moneyBags) do
-        repeat
-        local dist = calculateDistance(px, py, pz, pos.x, pos.y, pos.z)
-        local dx = pos.x - px
-        local dy = pos.y - py
-        local cos_h = math.cos(heading)
-        local sin_h = math.sin(heading)
-        -- Rotate so player's forward is radar-up
-        local rx = dx * cos_h + dy * sin_h
-        local ry = -dx * sin_h + dy * cos_h
-        local scale = radius / zoom
-        local dotX = cx + rx * scale
-        local dotY = cy - ry * scale
-        local dCenter = math.sqrt((dotX - cx)^2 + (dotY - cy)^2)
-        if dCenter <= radius then
-            local color
-            if dist < 100 then color = 0xFF00FF00
-            elseif dist < 500 then color = 0xFFFFFF00
-            else color = 0xFFFF4444 end
-            local size = dist < 100 and 6 or dist < 500 and 5 or 4
-            renderDrawPolygon(dotX - size / 2, dotY - size / 2, size, size, 4, 0, color)
-        end
-        until true
-    end
-
-    -- Title
-    if espFont then
-        renderFontDrawText(espFont, "RADAR", cx - 18, cy - radius - 14, 0xAAFFFFFF)
-    end
-end
-
--- ─────────────────────────────────────────────────────────────────────────────
 -- CHAT EVENT HANDLER FOR AUTO-TELEPORT
 -- ─────────────────────────────────────────────────────────────────────────────
 
 function sampev.onServerMessage(color, text)
+    if not autoTeleportEnabled[0] then
+        return -- Auto-teleport is disabled
+    end
+    
     -- Detect keywords in the message
     local keyword, searchTerms = detectKeywordInMessage(text)
     
     if keyword and searchTerms then
-        -- Find target position
-        local targetPos, matchRatio = findBestMatchPosition(searchTerms)
+        -- Find target position immediately to show in countdown
+        local targetPos = findBestMatchPosition(searchTerms)
         
         if not targetPos then
-            sampAddChatMessage("{FF6600}[SavePos]{FFFFFF} Detected keyword but no matching position found", 0xFFFFFFFF)
+            sampAddChatMessage("{FF6600}[AutoTP]{FFFFFF} Detected keyword but no matching position found", 0xFFFFFFFF)
             return
         end
         
-        -- 50% confidence threshold
-        if matchRatio < 0.5 then
-            sampAddChatMessage(string.format("{FFFF00}[Focus]{FFFFFF} Weak match (%.0f%%) — no focus", matchRatio * 100), 0xFFFFFFFF)
-            return
-        end
+        -- Generate random delay between 5-10 seconds
+        currentTeleportDelay = math.random(CONFIG.AUTO_TELEPORT_DELAY_MIN, CONFIG.AUTO_TELEPORT_DELAY_MAX)
         
-        -- Set ESP focus to the matched location
-        espFocusPosition = {
-            x = targetPos.x,
-            y = targetPos.y,
-            z = targetPos.z,
-            name = targetPos.name
-        }
-        espFocusTime = os.clock()
-        playBeep(660, 150)
-        playBeep(880, 200)
+        lastDetectedKeyword = keyword
+        keywordDetectedTime = os.clock()
+        autoTeleportPending = true
+        pendingSearchTerms = searchTerms
+        targetPositionName = targetPos.name
         
-        sampAddChatMessage("{FFA500}[Focus]{FFFFFF} ESP locked on: {FFFF00}" .. targetPos.name, 0xFFFFFFFF)
-        local px2, py2, pz2 = getCharCoordinates(PLAYER_PED)
-        if px2 then
-            sampAddChatMessage("{AAAAAA}Distance: {FFFF00}" .. string.format("%.0fm", 
-                calculateDistance(px2, py2, pz2, targetPos.x, targetPos.y, targetPos.z)), 0xFFFFFFFF)
-        end
+        sampAddChatMessage("{00FF00}[AutoTP]{FFFFFF} Detected: {FFFF00}" .. keyword, 0xFFFFFFFF)
+        sampAddChatMessage("{00BFFF}[AutoTP]{FFFFFF} Target: {FFFF00}" .. targetPos.name, 0xFFFFFFFF)
+        sampAddChatMessage("{00BFFF}[AutoTP]{FFFFFF} Teleporting in " .. currentTeleportDelay .. " seconds...", 0xFFFFFFFF)
         
-        -- Auto-teleport (only if enabled)
-        if autoTeleportEnabled[0] then
-            currentTeleportDelay = math.random(CONFIG.AUTO_TELEPORT_DELAY_MIN, CONFIG.AUTO_TELEPORT_DELAY_MAX)
-            
-            lastDetectedKeyword = keyword
-            keywordDetectedTime = os.clock()
-            autoTeleportPending = true
-            pendingSearchTerms = searchTerms
-            targetPositionName = targetPos.name
-            
-            sampAddChatMessage("{00FF00}[AutoTP]{FFFFFF} Detected: {FFFF00}" .. keyword, 0xFFFFFFFF)
-            sampAddChatMessage("{00BFFF}[AutoTP]{FFFFFF} Teleporting in " .. currentTeleportDelay .. " seconds...", 0xFFFFFFFF)
-            printStringNow("~g~EVENT DETECTED!~n~~y~" .. keyword .. "~n~~w~Preparing to teleport...", 3000)
-        end
+        printStringNow("~g~EVENT DETECTED!~n~~y~" .. keyword .. "~n~~w~Preparing to teleport...", 3000)
     end
 end
 
