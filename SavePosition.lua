@@ -162,6 +162,26 @@ local importText = imgui.new.char[10000]("")
 local showImportWindow = imgui.new.bool(false)
 local mergeOnImport = imgui.new.bool(false)
 
+-- Goldpot Database (from allpositions.txt)
+local goldpotDB = {}
+local goldpotDBLoaded = false
+local goldpotDBPath = getWorkingDirectory() .. "\\config\\allpositions.txt"
+local showGoldpotDB = imgui.new.bool(false)
+local goldpotGroupFilter = imgui.new.int(0)
+local GOLD_GROUPS = {"All", "LS", "SF", "LV", "OTHER", "NEW"}
+local goldpotSearchFilter = imgui.new.char[64]("")
+
+-- Goldpot Hint Analytics
+local hintAnalytics = {}
+local hintAnalyticsPath = getWorkingDirectory() .. "\\config\\HintAnalytics.json"
+local showAnalytics = imgui.new.bool(false)
+local analyticsSortMode = imgui.new.int(0)
+
+-- Last hinted position tracking (for Update Coords feature)
+local lastHintedName = nil
+local lastHintedSavedIndex = nil
+local lastHintedGoldpot = nil
+
 -- ─────────────────────────────────────────────────────────────────────────────
 -- SIMPLE JSON PARSER
 -- ─────────────────────────────────────────────────────────────────────────────
@@ -526,6 +546,8 @@ local function loadPositionsFromFile()
             for i, pos in ipairs(savedPositions) do
                 if not pos.timestamp then pos.timestamp = os.time() end
                 if pos.favorite == nil then pos.favorite = false end
+                if pos.shortcut == nil then pos.shortcut = "" end
+                if pos.group == nil then pos.group = "" end
             end
             
             return true
@@ -652,6 +674,294 @@ local function importFromText(text, merge)
     end
     
     return false, "No valid position data found in text"
+end
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- GOLDPOT DATABASE FUNCTIONS
+-- ─────────────────────────────────────────────────────────────────────────────
+
+local function trim(s)
+    return (s:match("^%s*(.-)%s*$") or s)
+end
+
+local function normalizeNameDB(name)
+    return trim(name:lower():gsub("[^%w%s]", ""):gsub("%s+", " "))
+end
+
+local function loadGoldpotDatabase()
+    goldpotDB = {}
+    goldpotDBLoaded = false
+    
+    local file = io.open(goldpotDBPath, "r")
+    if not file then return false end
+    
+    local content = file:read("*a")
+    file:close()
+    if not content or content == "" then return false end
+    
+    local currentGroup = "LS"
+    local entries = {}
+    
+    for line in content:gmatch("[^\r\n]+") do
+        local trimmed = trim(line)
+        if trimmed == "" then
+            -- skip empty lines
+        elseif trimmed:match("^LS Goldpots:%s*$") then
+            currentGroup = "LS"
+        elseif trimmed:match("^SF Goldpots:%s*$") then
+            currentGroup = "SF"
+        elseif trimmed:match("^LV Goldpots:%s*$") then
+            currentGroup = "LV"
+        elseif trimmed:match("^OTHER Goldpots:%s*$") then
+            currentGroup = "OTHER"
+        else
+            local lineContent = trimmed:match("^%d+:%s*(.*)")
+            if not lineContent then lineContent = trimmed end
+            
+            -- Extract shortcut: (/xxx) or (/xxx or /yyy)
+            local shortcut = ""
+            local shortMatch = lineContent:match("%((/[^%)]+)%)%s*$")
+            if shortMatch then
+                local firstCmd = shortMatch:match("/(%w+)")
+                if firstCmd then shortcut = "/" .. firstCmd end
+                lineContent = lineContent:gsub("%s*%((/[^%)]+)%)%s*$", "")
+            end
+            
+            -- Remove timestamp " - MM:SS" or " MM:SS" at end
+            lineContent = lineContent:gsub("%s*[-–]%s*%d+:%d+%s*$", "")
+            lineContent = lineContent:gsub("%s*%d+:%d+%s*$", "")
+            -- Remove trailing junk
+            lineContent = lineContent:gsub("%s*%*.*$", "")
+            
+            local name = trim(lineContent)
+            if name and name ~= "" then
+                table.insert(entries, {
+                    name = name,
+                    shortcut = shortcut,
+                    group = currentGroup,
+                    saved = false,
+                    savedIndex = nil
+                })
+            end
+        end
+    end
+    
+    goldpotDB = entries
+    goldpotDBLoaded = true
+    return true
+end
+
+local function matchGoldpotDatabase()
+    if not goldpotDBLoaded then return end
+    
+    for _, entry in ipairs(goldpotDB) do
+        entry.saved = false
+        entry.savedIndex = nil
+        
+        local entryNorm = normalizeNameDB(entry.name)
+        if entryNorm ~= "" then
+            for j, pos in ipairs(savedPositions) do
+                local posNorm = normalizeNameDB(pos.name or "")
+                if posNorm ~= "" and posNorm == entryNorm then
+                    entry.saved = true
+                    entry.savedIndex = j
+                    if not pos.shortcut or pos.shortcut == "" then
+                        pos.shortcut = entry.shortcut
+                    end
+                    if not pos.group or pos.group == "" then
+                        pos.group = entry.group
+                    end
+                    break
+                end
+            end
+        end
+    end
+end
+
+local function findGoldpotEntry(name)
+    if not goldpotDBLoaded then return nil end
+    local norm = normalizeNameDB(name)
+    if norm == "" then return nil end
+    for _, entry in ipairs(goldpotDB) do
+        if normalizeNameDB(entry.name) == norm then return entry end
+    end
+    return nil
+end
+
+local function getFilteredGoldpotEntries()
+    local results = {}
+    local filterText = trim(ffi.string(goldpotSearchFilter):lower())
+    local groupIdx = goldpotGroupFilter[0]
+    
+    for _, entry in ipairs(goldpotDB) do
+        local match = true
+        
+        -- Group filter
+        if groupIdx > 0 then
+            local groupName = GOLD_GROUPS[groupIdx + 1]
+            if entry.group ~= groupName then
+                match = false
+            elseif groupName == "NEW" and entry.saved then
+                match = false
+            end
+        end
+        
+        -- Search filter
+        if match and filterText ~= "" then
+            local nameMatch = entry.name:lower():find(filterText, 1, true)
+            local shortMatch = entry.shortcut:lower():find(filterText, 1, true)
+            if not nameMatch and not shortMatch then
+                match = false
+            end
+        end
+        
+        if match then
+            table.insert(results, entry)
+        end
+    end
+    
+    return results
+end
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- HINT ANALYTICS FUNCTIONS
+-- ─────────────────────────────────────────────────────────────────────────────
+
+local function loadHintAnalytics()
+    local file = io.open(hintAnalyticsPath, "r")
+    if not file then return false end
+    local content = file:read("*a")
+    file:close()
+    if not content or content == "" then return false end
+    local func, err = loadstring("return " .. content)
+    if func then
+        local success, data = pcall(func)
+        if success and type(data) == "table" then
+            hintAnalytics = data
+            return true
+        end
+    end
+    return false
+end
+
+local function saveHintAnalytics()
+    if not hintAnalytics or next(hintAnalytics) == nil then return end
+    local jsonData = serializeTable(hintAnalytics, nil, true)
+    local file = io.open(hintAnalyticsPath, "w")
+    if file then
+        file:write(jsonData)
+        file:close()
+    end
+end
+
+local function trackHint(name, shortcut, group)
+    local key = name:lower()
+    if not hintAnalytics[key] then
+        hintAnalytics[key] = {
+            name = name,
+            shortcut = shortcut or "",
+            group = group or "",
+            count = 0,
+            firstSeen = os.time(),
+            lastSeen = os.time()
+        }
+    end
+    hintAnalytics[key].count = hintAnalytics[key].count + 1
+    hintAnalytics[key].lastSeen = os.time()
+    hintAnalytics[key].shortcut = shortcut or hintAnalytics[key].shortcut or ""
+    hintAnalytics[key].group = group or hintAnalytics[key].group or ""
+end
+
+local function getAnalyticsStats()
+    local totalHints = 0
+    local uniqueCount = 0
+    local lastHint = nil
+    local lastHintTime = 0
+    local hotList = {}
+    
+    for key, data in pairs(hintAnalytics) do
+        totalHints = totalHints + data.count
+        if data.count > 0 then uniqueCount = uniqueCount + 1 end
+        if data.lastSeen > lastHintTime then
+            lastHintTime = data.lastSeen
+            lastHint = data
+        end
+        if data.count >= 3 then
+            table.insert(hotList, data)
+        end
+    end
+    
+    table.sort(hotList, function(a, b) return a.count > b.count end)
+    
+    local topHot = {}
+    for i = 1, math.min(3, #hotList) do
+        table.insert(topHot, hotList[i])
+    end
+    
+    return totalHints, uniqueCount, lastHint, lastHintTime, topHot
+end
+
+local function getSortedAnalytics(sortMode)
+    local results = {}
+    local seenKeys = {}
+    
+    -- First, add all goldpot DB entries with analytics data merged in
+    for _, entry in ipairs(goldpotDB) do
+        local key = entry.name:lower()
+        local analyticsData = hintAnalytics[key]
+        if analyticsData then
+            seenKeys[key] = true
+            table.insert(results, {
+                name = entry.name,
+                shortcut = entry.shortcut or "",
+                group = entry.group or "",
+                count = analyticsData.count,
+                firstSeen = analyticsData.firstSeen,
+                lastSeen = analyticsData.lastSeen
+            })
+        else
+            table.insert(results, {
+                name = entry.name,
+                shortcut = entry.shortcut or "",
+                group = entry.group or "",
+                count = 0,
+                firstSeen = 0,
+                lastSeen = 0
+            })
+        end
+    end
+    
+    -- Add any orphaned analytics entries (not in goldpot DB, e.g. unknown hints)
+    for key, data in pairs(hintAnalytics) do
+        if not seenKeys[key] then
+            table.insert(results, {
+                name = data.name,
+                shortcut = data.shortcut or "",
+                group = data.group or "",
+                count = data.count,
+                firstSeen = data.firstSeen,
+                lastSeen = data.lastSeen
+            })
+        end
+    end
+    
+    if sortMode == 0 then -- Most frequent
+        table.sort(results, function(a, b) return a.count > b.count end)
+    elseif sortMode == 1 then -- Least frequent (seen at least once)
+        table.sort(results, function(a, b)
+            if a.count == 0 and b.count > 0 then return false end
+            if b.count == 0 and a.count > 0 then return true end
+            return a.count < b.count
+        end)
+    elseif sortMode == 2 then -- Never seen
+        table.sort(results, function(a, b)
+            if a.count == 0 and b.count > 0 then return true end
+            if b.count == 0 and a.count > 0 then return false end
+            return a.name < b.name
+        end)
+    end
+    
+    return results
 end
 
 -- ─────────────────────────────────────────────────────────────────────────────
@@ -1188,7 +1498,63 @@ local function renderMenu()
     imgui.SameLine()
     imgui.TextColored(imgui.ImVec4(0.5, 0.5, 0.5, 1.0), string.format(" [%d saved]", #savedPositions))
     
+    imgui.SameLine()
+    local goldButtonColor = showGoldpotDB[0] and imgui.ImVec4(0.8, 0.5, 0.0, 1.0) or imgui.ImVec4(0.3, 0.3, 0.4, 0.6)
+    imgui.PushStyleColor(imgui.Col.Button, goldButtonColor)
+    if imgui.Button(showGoldpotDB[0] and "DB: ON" or "Goldpot DB", imgui.ImVec2(90, 0)) then
+        showGoldpotDB[0] = not showGoldpotDB[0]
+    end
+    imgui.PopStyleColor()
+    
+    imgui.SameLine()
+    local hasHint = lastHintedName ~= nil
+    local ucColor = hasHint and imgui.ImVec4(0.1, 0.7, 0.3, 1.0) or imgui.ImVec4(0.3, 0.3, 0.4, 0.4)
+    imgui.PushStyleColor(imgui.Col.Button, ucColor)
+    imgui.PushStyleColor(imgui.Col.Text, hasHint and imgui.ImVec4(1.0, 1.0, 1.0, 1.0) or imgui.ImVec4(0.5, 0.5, 0.5, 0.5))
+    if imgui.Button("📍 Update Coords", imgui.ImVec2(130, 0)) then
+        if lastHintedSavedIndex and savedPositions[lastHintedSavedIndex] then
+            local px, py, pz = getPlayerPosition()
+            savedPositions[lastHintedSavedIndex].x = px
+            savedPositions[lastHintedSavedIndex].y = py
+            savedPositions[lastHintedSavedIndex].z = pz
+            savedPositions[lastHintedSavedIndex].timestamp = os.time()
+            savePositionsToFile()
+            local msg = "{00FF00}[SavePos]{FFFFFF} Updated coords for: {FFFF00}" .. lastHintedName
+            sampAddChatMessage(msg, 0xFFFFFFFF)
+            setStatusMessage("✓ Updated coords: " .. lastHintedName)
+        elseif lastHintedGoldpot then
+            local x, y, z, angle, interior, inVehicle = getPlayerPosition()
+            local newPos = {
+                name = lastHintedGoldpot.name,
+                x = x,
+                y = y,
+                z = z,
+                angle = angle or 0,
+                interior = interior or 0,
+                category = lastHintedGoldpot.group or "Custom",
+                shortcut = lastHintedGoldpot.shortcut or "",
+                group = lastHintedGoldpot.group or "",
+                timestamp = os.time()
+            }
+            table.insert(savedPositions, newPos)
+            savePositionsToFile()
+            if goldpotDBLoaded then matchGoldpotDatabase() end
+            local msg = "{00FF00}[SavePos]{FFFFFF} Saved exact location: {FFFF00}" .. lastHintedGoldpot.name
+            sampAddChatMessage(msg, 0xFFFFFFFF)
+            setStatusMessage("✓ Saved exact location: " .. lastHintedGoldpot.name)
+            lastHintedSavedIndex = #savedPositions
+            lastHintedGoldpot = nil
+        else
+            sampAddChatMessage("{FF6600}[SavePos]{FFFFFF} No hint detected yet. Wait for a hint first.", 0xFFFFFFFF)
+        end
+    end
+    imgui.PopStyleColor()
+    imgui.PopStyleColor()
+    
     imgui.Separator()
+    
+    if not showGoldpotDB[0] then
+        -- NORMAL VIEW ---
     
     -- Current position
     local x, y, z, angle, interior, inVehicle = getPlayerPosition()
@@ -1238,6 +1604,7 @@ local function renderMenu()
         if exists then
             setStatusMessage("✗ Position '" .. name .. "' already exists at #" .. existingIndex)
         else
+            local goldMatch = findGoldpotEntry(name)
             local newPos = {
                 name = name,
                 x = x,
@@ -1247,13 +1614,16 @@ local function renderMenu()
                 interior = interior,
                 inVehicle = inVehicle,
                 timestamp = os.time(),
-                favorite = false
+                favorite = false,
+                shortcut = goldMatch and goldMatch.shortcut or "",
+                group = goldMatch and goldMatch.group or ""
             }
             
             table.insert(savedPositions, newPos)
             saveCounter = saveCounter + 1
             
             if savePositionsToFile() then
+                if goldpotDBLoaded then matchGoldpotDatabase() end
                 setStatusMessage("✓ Saved: " .. name .. " (Total: " .. #savedPositions .. ")")
                 
                 -- Auto-backup every X saves
@@ -1328,6 +1698,7 @@ local function renderMenu()
     
     if imgui.Button("Reload From File", imgui.ImVec2(150, 30)) then
         if loadPositionsFromFile() then
+            if goldpotDBLoaded then matchGoldpotDatabase() end
             setStatusMessage("✓ Reloaded " .. #savedPositions .. " positions from file")
         else
             setStatusMessage("✗ Failed to reload positions")
@@ -1535,9 +1906,9 @@ local function renderMenu()
     elseif #savedPositions == 0 then
         imgui.TextColored(imgui.ImVec4(0.5, 0.5, 0.5, 1.0), "No positions saved yet.")
     end
-    
+
     imgui.EndChild()
-    
+
     -- Status message
     if statusMessage ~= "" and (os.clock() - statusMessageTime) < 5 then
         imgui.Separator()
@@ -1549,7 +1920,12 @@ local function renderMenu()
             imgui.TextColored(imgui.ImVec4(0.8, 0.8, 0.2, 1.0), statusMessage)
         end
     end
-    
+
+    else
+        -- GOLDPOT DATABASE VIEW ---
+        renderGoldpotDBView()
+    end
+
     imgui.End()
     
     -- Delete confirmation
@@ -1566,6 +1942,7 @@ local function renderMenu()
             if imgui.Button("Yes, Delete", imgui.ImVec2(130, 0)) then
                 table.remove(savedPositions, deleteIndex)
                 savePositionsToFile()
+                if goldpotDBLoaded then matchGoldpotDatabase() end
                 setStatusMessage("✓ Position deleted")
                 showConfirmDelete[0] = false
             end
@@ -1626,6 +2003,279 @@ local function renderMenu()
     end
 end
 
+-- ─────────────────────────────────────────────────────────────────────────────
+-- GOLDPOT DATABASE UI
+-- ─────────────────────────────────────────────────────────────────────────────
+
+function renderGoldpotDBView()
+    -- Tab buttons
+    local dbActive = not showAnalytics[0]
+    local anActive = showAnalytics[0]
+    
+    imgui.PushStyleColor(imgui.Col.Button, dbActive and imgui.ImVec4(0.8, 0.5, 0.0, 1.0) or imgui.ImVec4(0.3, 0.3, 0.4, 0.6))
+    if imgui.Button("Database##gptab", imgui.ImVec2(80, 22)) then showAnalytics[0] = false end
+    imgui.PopStyleColor()
+    imgui.SameLine()
+    imgui.PushStyleColor(imgui.Col.Button, anActive and imgui.ImVec4(0.8, 0.5, 0.0, 1.0) or imgui.ImVec4(0.3, 0.3, 0.4, 0.6))
+    if imgui.Button("Analytics##gptab", imgui.ImVec2(80, 22)) then showAnalytics[0] = true end
+    imgui.PopStyleColor()
+    
+    imgui.Separator()
+    
+    if not showAnalytics[0] then
+        -- DATABASE VIEW ---
+        
+    -- Group filter tabs
+    imgui.Text("Filter Group:")
+    imgui.SameLine()
+    for idx, groupName in ipairs(GOLD_GROUPS) do
+        if idx > 1 then imgui.SameLine() end
+        local isActive = (idx - 1) == goldpotGroupFilter[0]
+        if isActive then
+            imgui.PushStyleColor(imgui.Col.Button, imgui.ImVec4(0.8, 0.5, 0.0, 1.0))
+        end
+        if imgui.Button(groupName .. "##GP" .. idx, imgui.ImVec2(55, 22)) then
+            goldpotGroupFilter[0] = idx - 1
+        end
+        if isActive then
+            imgui.PopStyleColor()
+        end
+    end
+    
+    -- Search filter
+    imgui.SameLine()
+    imgui.Text("Search:")
+    imgui.SameLine()
+    imgui.PushItemWidth(150)
+    imgui.InputText("##GPSearch", goldpotSearchFilter, 64)
+    imgui.PopItemWidth()
+    
+    local filtered = getFilteredGoldpotEntries()
+    
+    imgui.Text(string.format("Showing: %d/%d goldpots", #filtered, #goldpotDB))
+    imgui.Separator()
+    
+    -- Database list
+    imgui.BeginChild("GoldpotDBList", imgui.ImVec2(0, 260), true)
+    
+    for idx, entry in ipairs(filtered) do
+        local icon = entry.saved and "✓" or "□"
+        local statusColor = entry.saved and imgui.ImVec4(0.2, 0.8, 0.2, 1.0) or imgui.ImVec4(0.8, 0.3, 0.1, 1.0)
+        local shortcutColor = entry.shortcut ~= "" and imgui.ImVec4(0.2, 0.7, 0.9, 1.0) or imgui.ImVec4(0.5, 0.5, 0.5, 0.5)
+        local groupColor = imgui.ImVec4(0.5, 0.5, 0.5, 1.0)
+        
+        if entry.group == "LS" then groupColor = imgui.ImVec4(0.2, 0.8, 0.2, 1.0)
+        elseif entry.group == "SF" then groupColor = imgui.ImVec4(0.2, 0.6, 0.9, 1.0)
+        elseif entry.group == "LV" then groupColor = imgui.ImVec4(0.9, 0.7, 0.0, 1.0)
+        elseif entry.group == "OTHER" then groupColor = imgui.ImVec4(0.8, 0.4, 0.8, 1.0)
+        elseif entry.group == "NEW" then groupColor = imgui.ImVec4(0.0, 0.9, 0.9, 1.0)
+        end
+        
+        -- Header text
+        local headerText = string.format("%s %s", icon, entry.name)
+        if not entry.saved and entry.shortcut ~= "" then
+            headerText = headerText .. "  [" .. entry.shortcut .. "]"
+        end
+        
+        if imgui.CollapsingHeader(headerText .. "##gpe" .. idx) then
+            imgui.Indent()
+            
+            imgui.TextColored(imgui.ImVec4(0.7, 0.7, 0.7, 1.0), "Group: ")
+            imgui.SameLine()
+            imgui.TextColored(groupColor, entry.group)
+            
+            imgui.TextColored(imgui.ImVec4(0.7, 0.7, 0.7, 1.0), "Shortcut: ")
+            imgui.SameLine()
+            imgui.TextColored(shortcutColor, entry.shortcut ~= "" and entry.shortcut or "none")
+            
+            imgui.TextColored(imgui.ImVec4(0.7, 0.7, 0.7, 1.0), "Status: ")
+            imgui.SameLine()
+            if entry.saved then
+                imgui.TextColored(imgui.ImVec4(0.2, 0.8, 0.2, 1.0), "SAVED ✓")
+            else
+                imgui.TextColored(imgui.ImVec4(0.8, 0.3, 0.1, 1.0), "NOT SAVED YET ⚠")
+            end
+            
+            if not entry.saved then
+                imgui.Spacing()
+                imgui.TextColored(imgui.ImVec4(0.8, 0.8, 0.2, 1.0), 
+                    entry.shortcut ~= "" and string.format("Go to location via %s, then use /spos %s", entry.shortcut, entry.name) or "")
+            end
+            
+            -- Action button: teleport if saved, hint if not
+            imgui.Spacing()
+            if entry.saved and entry.savedIndex then
+                imgui.PushStyleColor(imgui.Col.Button, CONFIG.COLORS.TELEPORT)
+                if imgui.Button("Teleport##gpt" .. idx, imgui.ImVec2(100, 25)) then
+                    if savedPositions[entry.savedIndex] then
+                        teleportToPosition(savedPositions[entry.savedIndex])
+                    end
+                end
+                imgui.PopStyleColor()
+            elseif entry.shortcut ~= "" then
+                imgui.PushStyleColor(imgui.Col.Button, imgui.ImVec4(0.8, 0.5, 0.0, 1.0))
+                if imgui.Button("Copy Shortcut##gpc" .. idx, imgui.ImVec2(120, 25)) then
+                    sampAddChatMessage(string.format("{FFA500}[GoldpotDB]{FFFFFF} Use %s to reach: {FFFF00}%s", entry.shortcut, entry.name), 0xFFFFFFFF)
+                    setStatusMessage(string.format("Shortcut: %s for %s", entry.shortcut, entry.name))
+                end
+                imgui.PopStyleColor()
+            end
+            
+            imgui.Unindent()
+        end
+    end
+    
+    if #goldpotDB == 0 then
+        imgui.TextColored(imgui.ImVec4(0.5, 0.5, 0.5, 1.0), "Goldpot database not loaded.")
+        imgui.TextColored(imgui.ImVec4(0.5, 0.5, 0.5, 1.0), "Check that config/allpositions.txt exists.")
+    elseif #filtered == 0 then
+        imgui.TextColored(imgui.ImVec4(0.5, 0.5, 0.5, 1.0), "No entries match your filter/search.")
+    end
+    
+    imgui.EndChild()
+    
+    -- Legend
+    imgui.Separator()
+    imgui.TextColored(imgui.ImVec4(0.5, 0.5, 0.5, 1.0), "□ = Unsaved  |  ✓ = Saved in your positions")
+    imgui.SameLine()
+    imgui.TextColored(imgui.ImVec4(0.5, 0.5, 0.5, 1.0), string.format(" | Total: %d goldpots", #goldpotDB))
+    
+    else
+        -- ANALYTICS VIEW ---
+        renderAnalyticsView()
+    end
+end
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- HINT ANALYTICS UI
+-- ─────────────────────────────────────────────────────────────────────────────
+
+function renderAnalyticsView()
+    local totalHints, uniqueCount, lastHint, lastHintTime, topHot = getAnalyticsStats()
+    
+    -- Stats header
+    imgui.PushStyleColor(imgui.Col.Text, imgui.ImVec4(0.2, 0.8, 0.9, 1.0))
+    imgui.Text("HINT ANALYTICS")
+    imgui.PopStyleColor()
+    
+    local hasData = totalHints > 0
+    if hasData then
+        local now = os.time()
+        local lastHintAgo = math.floor((now - lastHintTime) / 60)
+        local agoText = lastHintAgo < 1 and "just now" or lastHintAgo < 60 and tostring(lastHintAgo) .. "m ago" or tostring(math.floor(lastHintAgo / 60)) .. "h ago"
+        
+        imgui.TextColored(imgui.ImVec4(0.7, 0.7, 0.7, 1.0), "Total hints detected: ")
+        imgui.SameLine()
+        imgui.TextColored(CONFIG.COLORS.TEXT_HIGHLIGHT, tostring(totalHints))
+        imgui.SameLine()
+        imgui.TextColored(imgui.ImVec4(0.7, 0.7, 0.7, 1.0), " | Unique: ")
+        imgui.SameLine()
+        imgui.TextColored(CONFIG.COLORS.TEXT_HIGHLIGHT, string.format("%d/%d", uniqueCount, #goldpotDB))
+        
+        imgui.TextColored(imgui.ImVec4(0.7, 0.7, 0.7, 1.0), "Last hint: ")
+        imgui.SameLine()
+        if lastHint then
+            local hintName = lastHint.name or "Unknown"
+            imgui.TextColored(CONFIG.COLORS.TEXT_HIGHLIGHT, hintName .. " (" .. agoText .. ")")
+        end
+        
+        if #topHot > 0 then
+            local hotNames = {}
+            for _, h in ipairs(topHot) do
+                table.insert(hotNames, h.name .. " (" .. h.count .. "x)")
+            end
+            imgui.TextColored(imgui.ImVec4(0.7, 0.7, 0.7, 1.0), "Hot: ")
+            imgui.SameLine()
+            imgui.TextColored(CONFIG.COLORS.FAVORITE, table.concat(hotNames, ", "))
+        end
+    else
+        imgui.TextColored(imgui.ImVec4(0.5, 0.5, 0.5, 1.0), "No hint data collected yet.")
+        imgui.TextColored(imgui.ImVec4(0.5, 0.5, 0.5, 1.0), "Hint analytics will populate as goldpot hints appear in chat.")
+    end
+    
+    imgui.Separator()
+    
+    -- Sort buttons
+    imgui.Text("Sort:")
+    imgui.SameLine()
+    local sorts = {"Most Frequent", "Least Frequent", "Never Seen"}
+    local currentSort = sorts[analyticsSortMode[0] + 1]
+    if imgui.Button(currentSort .. "##ansort", imgui.ImVec2(120, 22)) then
+        analyticsSortMode[0] = (analyticsSortMode[0] + 1) % 3
+    end
+    
+    local sortedData = getSortedAnalytics(analyticsSortMode[0])
+    
+    imgui.Text(string.format("Showing: %d goldpot entries (%d unseen)", #sortedData, #sortedData - uniqueCount))
+    imgui.Separator()
+    
+    -- List
+    imgui.BeginChild("AnalyticsList", imgui.ImVec2(0, 260), true)
+    
+    for idx, data in ipairs(sortedData) do
+        local name = data.name or "Unknown"
+        local shortcutText = data.shortcut ~= "" and " [" .. data.shortcut .. "]" or ""
+        local headerText = name .. shortcutText
+        
+        if imgui.CollapsingHeader(headerText .. "##an" .. idx) then
+            imgui.Indent()
+            
+            local countColor = data.count >= 10 and imgui.ImVec4(0.9, 0.2, 0.2, 1.0) or data.count >= 3 and imgui.ImVec4(0.9, 0.7, 0.0, 1.0) or data.count >= 1 and imgui.ImVec4(0.2, 0.8, 0.2, 1.0) or imgui.ImVec4(0.5, 0.5, 0.5, 1.0)
+            
+            imgui.TextColored(imgui.ImVec4(0.7, 0.7, 0.7, 1.0), "Count: ")
+            imgui.SameLine()
+            imgui.TextColored(countColor, data.count == 0 and "0x never" or tostring(data.count) .. "x")
+            
+            if data.count > 0 then
+                imgui.TextColored(imgui.ImVec4(0.7, 0.7, 0.7, 1.0), "First seen: ")
+                imgui.SameLine()
+                imgui.Text(os.date("%Y-%m-%d %H:%M", data.firstSeen))
+                
+                local now = os.time()
+                local secsAgo = now - data.lastSeen
+                local agoStr = secsAgo < 60 and tostring(secsAgo) .. "s ago" or secsAgo < 3600 and tostring(math.floor(secsAgo/60)) .. "m ago" or secsAgo < 86400 and tostring(math.floor(secsAgo/3600)) .. "h ago" or tostring(math.floor(secsAgo/86400)) .. "d ago"
+                imgui.TextColored(imgui.ImVec4(0.7, 0.7, 0.7, 1.0), "Last seen: ")
+                imgui.SameLine()
+                imgui.TextColored(imgui.ImVec4(0.2, 0.7, 0.9, 1.0), os.date("%Y-%m-%d %H:%M", data.lastSeen) .. " (" .. agoStr .. ")")
+            end
+            
+            if data.group and data.group ~= "" then
+                local grpColor = data.group == "LS" and imgui.ImVec4(0.2, 0.8, 0.2, 1.0) or data.group == "SF" and imgui.ImVec4(0.2, 0.6, 0.9, 1.0) or data.group == "LV" and imgui.ImVec4(0.9, 0.7, 0.0, 1.0) or data.group == "OTHER" and imgui.ImVec4(0.8, 0.4, 0.8, 1.0) or data.group == "NEW" and imgui.ImVec4(0.0, 0.9, 0.9, 1.0) or imgui.ImVec4(0.5, 0.5, 0.5, 1.0)
+                imgui.TextColored(imgui.ImVec4(0.7, 0.7, 0.7, 1.0), "Group: ")
+                imgui.SameLine()
+                imgui.TextColored(grpColor, data.group)
+            end
+            
+            imgui.Unindent()
+        end
+    end
+    
+    if #goldpotDB == 0 then
+        imgui.TextColored(imgui.ImVec4(0.5, 0.5, 0.5, 1.0), "Goldpot database not loaded.")
+        imgui.TextColored(imgui.ImVec4(0.5, 0.5, 0.5, 1.0), "Check that config/allpositions.txt exists.")
+    end
+    
+    imgui.EndChild()
+    
+    -- Legend
+    imgui.Separator()
+    imgui.TextColored(imgui.ImVec4(0.2, 0.8, 0.2, 1.0), "[1-2x]")
+    imgui.SameLine()
+    imgui.TextColored(imgui.ImVec4(0.5, 0.5, 0.5, 1.0), " | ")
+    imgui.SameLine()
+    imgui.TextColored(imgui.ImVec4(0.9, 0.7, 0.0, 1.0), "[3-9x]")
+    imgui.SameLine()
+    imgui.TextColored(imgui.ImVec4(0.5, 0.5, 0.5, 1.0), " | ")
+    imgui.SameLine()
+    imgui.TextColored(imgui.ImVec4(0.9, 0.2, 0.2, 1.0), "[10x+]")
+    imgui.SameLine()
+    imgui.TextColored(imgui.ImVec4(0.5, 0.5, 0.5, 1.0), " | ")
+    imgui.SameLine()
+    imgui.TextColored(imgui.ImVec4(0.5, 0.5, 0.5, 1.0), "[Never seen]")
+    imgui.SameLine()
+    imgui.TextColored(imgui.ImVec4(0.5, 0.5, 0.5, 1.0), string.format(" | Total: %d hints", totalHints))
+end
+
 imgui.OnFrame(function() return mainWindow[0] end, renderMenu)
 
 -- ─────────────────────────────────────────────────────────────────────────────
@@ -1659,6 +2309,19 @@ function main()
         end
     end
     
+    -- Load goldpot database and match with saved positions
+    if loadGoldpotDatabase() then
+        matchGoldpotDatabase()
+        -- Save any newly-matched shortcuts/groups to file
+        savePositionsToFile()
+        if #goldpotDB > 0 then
+            sampAddChatMessage("{00BFFF}[GoldpotDB]{FFFFFF} " .. #goldpotDB .. " goldpot entries loaded", 0xFFFFFFFF)
+        end
+    end
+    
+    -- Load hint analytics
+    loadHintAnalytics()
+    
     -- Chat commands
     sampRegisterChatCommand("spos", function(params)
         local x, y, z, angle, interior, inVehicle = getPlayerPosition()
@@ -1672,6 +2335,7 @@ function main()
             return
         end
         
+        local goldMatch = findGoldpotEntry(name)
         local newPos = {
             name = name,
             x = x,
@@ -1680,11 +2344,14 @@ function main()
             angle = angle,
             interior = interior,
             inVehicle = inVehicle,
-            timestamp = os.time()
+            timestamp = os.time(),
+            shortcut = goldMatch and goldMatch.shortcut or "",
+            group = goldMatch and goldMatch.group or ""
         }
         
         table.insert(savedPositions, newPos)
         savePositionsToFile()
+        if goldpotDBLoaded then matchGoldpotDatabase() end
         
         sampAddChatMessage("{00FF00}[SavePos]{FFFFFF} Saved: " .. name .. " (Total: " .. #savedPositions .. ")", 0xFFFFFFFF)
     end)
@@ -2100,19 +2767,113 @@ function sampev.onServerMessage(color, text)
     local keyword, searchTerms = detectKeywordInMessage(text)
     
     if keyword and searchTerms then
+        -- Track analytics: build search hint text
+        local hintText = ""
+        for _, word in ipairs(searchTerms) do
+            hintText = hintText .. " " .. word
+        end
+        hintText = trim(hintText)
+        
         -- Find target position
         local targetPos, matchRatio = findBestMatchPosition(searchTerms)
         
         if not targetPos then
-            sampAddChatMessage("{FF6600}[SavePos]{FFFFFF} Detected keyword but no matching position found", 0xFFFFFFFF)
+            -- Check goldpot database for unsaved entries
+            local goldMatch = nil
+            if goldpotDBLoaded then
+                for _, entry in ipairs(goldpotDB) do
+                    local entryNorm = normalizeNameDB(entry.name)
+                    if entryNorm:find(hintText:lower(), 1, true) or hintText:lower():find(entryNorm, 1, true) then
+                        goldMatch = entry
+                        break
+                    end
+                end
+            end
+            
+            if goldMatch then
+                trackHint(goldMatch.name, goldMatch.shortcut, goldMatch.group)
+                lastHintedName = goldMatch.name
+                lastHintedSavedIndex = goldMatch.saved and goldMatch.savedIndex or nil
+                lastHintedGoldpot = goldMatch.saved and nil or goldMatch
+                if goldMatch.saved then
+                    sampAddChatMessage("{FF6600}[SavePos]{FFFFFF} Detected keyword but no position data loaded", 0xFFFFFFFF)
+                    printStringNow("~y~" .. goldMatch.name .. "~n~~w~Detected but no data loaded", 3000)
+                else
+                    local shortcutLine = goldMatch.shortcut ~= "" and "~g~" .. goldMatch.shortcut .. "~w~ to go there" or ""
+                    printStringNow("~y~" .. goldMatch.name .. "~n~~w~NOT SAVED!~n~" .. shortcutLine, 4000)
+                    sampAddChatMessage("{FFA500}[GoldpotDB]{FFFFFF} Detected: {FFFF00}" .. goldMatch.name, 0xFFFFFFFF)
+                    sampAddChatMessage("{FFA500}⚠ Not saved yet! {FFFFFF}Use " .. (goldMatch.shortcut ~= "" and goldMatch.shortcut .. " to get there, then " or "") .. "/spos " .. goldMatch.name, 0xFFFFFFFF)
+                    playBeep(660, 150)
+                    playBeep(880, 200)
+                end
+            else
+                trackHint(hintText, "", "")
+                -- Add as NEW goldpot DB entry if not already in DB
+                local newEntry = nil
+                local hintNorm = normalizeNameDB(hintText)
+                if hintNorm ~= "" then
+                    for _, entry in ipairs(goldpotDB) do
+                        if normalizeNameDB(entry.name) == hintNorm then
+                            newEntry = entry
+                            break
+                        end
+                    end
+                    if not newEntry then
+                        newEntry = {
+                            name = hintText,
+                            shortcut = "",
+                            group = "NEW",
+                            saved = false,
+                            savedIndex = nil
+                        }
+                        table.insert(goldpotDB, newEntry)
+                    end
+                end
+                lastHintedName = hintText
+                lastHintedSavedIndex = nil
+                lastHintedGoldpot = newEntry
+                sampAddChatMessage("{FF6600}[SavePos]{FFFFFF} Unknown hint added to DB as NEW: {FFFF00}" .. hintText, 0xFFFFFFFF)
+                printStringNow("~y~" .. hintText .. "~n~~c~NEW~w~: Check Goldpot DB", 3000)
+            end
+            saveHintAnalytics()
             return
         end
         
         -- 50% confidence threshold
         if matchRatio < 0.5 then
             sampAddChatMessage(string.format("{FFFF00}[Focus]{FFFFFF} Weak match (%.0f%%) — no focus", matchRatio * 100), 0xFFFFFFFF)
+            trackHint(targetPos.name or hintText, targetPos.shortcut or "", targetPos.group or "")
+            saveHintAnalytics()
+            lastHintedName = targetPos.name
+            lastHintedGoldpot = nil
+            for idx, pos in ipairs(savedPositions) do
+                if pos == targetPos then
+                    lastHintedSavedIndex = idx
+                    break
+                end
+            end
+            printStringNow("~y~" .. (targetPos.name or hintText) .. "~n~~w~Weak match (" .. string.format("%.0f%%)", matchRatio * 100) .. ")", 3000)
             return
         end
+        
+        -- Track analytics for matched position
+        trackHint(targetPos.name, targetPos.shortcut or "", targetPos.group or "")
+        saveHintAnalytics()
+        
+        -- Track last hinted for Update Coords
+        lastHintedName = targetPos.name
+        lastHintedGoldpot = nil
+        for idx, pos in ipairs(savedPositions) do
+            if pos == targetPos then
+                lastHintedSavedIndex = idx
+                break
+            end
+        end
+        
+        -- On-screen display
+        local shortLabel = targetPos.shortcut and targetPos.shortcut ~= "" and "~g~[" .. targetPos.shortcut .. "]~w~ " or ""
+        local grpLabel = targetPos.group and targetPos.group ~= "" and "~c~(" .. targetPos.group .. ")~w~" or ""
+        printStringNow("~y~" .. shortLabel .. targetPos.name .. "~n~" .. grpLabel .. "~w~Focus: ESP locked", 3000)
         
         -- Set ESP focus to the matched location
         espFocusPosition = {
