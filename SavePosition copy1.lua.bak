@@ -52,7 +52,6 @@ local CONFIG = {
     TELEPORT_COOLDOWN = 2,
     AUTO_BACKUP_INTERVAL = 20, -- Backup every 20 saves
     MAX_ESP_DISTANCE = 20000.0, -- Maximum distance to show ESP markers (entire map)
-    MONEYBAG_TP_DISTANCE = 300.0, -- Auto-TP only when within 300m
     
     -- Auto-Teleport Settings
     -- System will automatically extract location from "Hint: (location)" in chat
@@ -80,9 +79,6 @@ local CONFIG = {
         TEXT_HIGHLIGHT = imgui.ImVec4(1.0, 0.8, 0.0, 1.0),
         WARNING = imgui.ImVec4(1.0, 0.5, 0.0, 1.0),
         ROUTE = imgui.ImVec4(0.5, 0.0, 0.8, 1.0)
-    },
-    CATEGORIES = {
-        "All", "Events", "Spots", "Safe Zones", "Resources", "Custom"
     },
     
     ESP_COLORS = {
@@ -124,7 +120,7 @@ local soundAlert = imgui.new.bool(true)
 local moneyBags = {}
 local moneybagTPPending = false
 local moneybagTPTime = 0
-local moneybagTPDelay = 1
+local moneybagTPDelay = 3
 local moneybagTPCooldown = 0
 local moneybagPendingX = 0
 local moneybagPendingY = 0
@@ -315,84 +311,58 @@ local function findBestMatchPosition(searchTerms)
     
     -- Score each position based on how many search terms match
     for i, pos in ipairs(savedPositions) do
-        local posName = (pos.name or ""):lower()
-        if posName ~= "" then
-            local score = 0
-            local matchedWords = 0
-            local exactMatches = 0
-            local totalSearchWords = #searchTerms
-
-            -- Check if all terms combined form an exact phrase match (HIGHEST priority)
-            local fullPhrase = table.concat(searchTerms, " ")
-            if posName:find(fullPhrase, 1, true) then
-                score = score + 1000 -- Extremely high score for exact phrase match
-                matchedWords = totalSearchWords
-                exactMatches = totalSearchWords
-            else
-                -- Score individual term matches with better logic
-                for _, term in ipairs(searchTerms) do
-                    term = term:lower()
-                    local termLen = #term
-
-                    -- Exact word boundary match (highest score)
-                    if posName:match("%f[%w]" .. term .. "%f[%W]") then
-                        score = score + 60
-                        matchedWords = matchedWords + 1
-                        exactMatches = exactMatches + 1
-                    -- Word-prefix match (good for short hints like "Vice")
-                    elseif posName:match("%f[%w]" .. term) then
-                        score = score + 35
-                        matchedWords = matchedWords + 0.75
-                    -- Substring match (lower score, especially for short terms)
-                    elseif posName:find(term, 1, true) then
-                        if termLen <= 4 then
-                            score = score + 8
-                            matchedWords = matchedWords + 0.25
-                        else
-                            score = score + 20
-                            matchedWords = matchedWords + 0.5
-                        end
-                    end
-                end
-
-                -- Bonus: if most words match, give extra points
-                local matchRatio = matchedWords / totalSearchWords
-                if matchRatio >= 0.8 then
-                    score = score + 100
-                elseif matchRatio >= 0.6 then
-                    score = score + 50
-                end
-
-                -- Bonus for mostly exact/prefix matches
-                if exactMatches >= math.max(1, math.floor(totalSearchWords * 0.6)) then
-                    score = score + 30
-                end
-
-                -- Penalty for positions with too many extra words (less specific)
-                local posWordCount = 0
-                for _ in posName:gmatch("%S+") do
-                    posWordCount = posWordCount + 1
-                end
-                if totalSearchWords > 1 and posWordCount > totalSearchWords * 2 then
-                    score = score - 20
-                end
-
-                -- For single-word hints, prefer more descriptive names
-                if totalSearchWords == 1 and posWordCount > 1 and score > 0 then
-                    score = score + math.min(30, posWordCount * 6)
+        local posName = pos.name:lower()
+        local score = 0
+        local matchedWords = 0
+        local totalSearchWords = #searchTerms
+        
+        -- Check if all terms combined form an exact phrase match (HIGHEST priority)
+        local fullPhrase = table.concat(searchTerms, " ")
+        if posName:find(fullPhrase, 1, true) then
+            score = score + 1000 -- Extremely high score for exact phrase match
+            matchedWords = totalSearchWords
+        else
+            -- Score individual term matches with better logic
+            for _, term in ipairs(searchTerms) do
+                term = term:lower()
+                
+                -- Check for exact word boundary match (higher score)
+                if posName:match("%f[%w]" .. term .. "%f[%W]") then
+                    score = score + 50 -- Exact word match
+                    matchedWords = matchedWords + 1
+                elseif posName:find(term, 1, true) then
+                    score = score + 20 -- Partial/substring match
+                    matchedWords = matchedWords + 0.5
                 end
             end
-
-            -- Store candidate if it has any score
-            if score > 0 then
-                table.insert(candidates, {pos = pos, score = score, matchedWords = matchedWords})
+            
+            -- Bonus: if most words match, give extra points
+            local matchRatio = matchedWords / totalSearchWords
+            if matchRatio >= 0.8 then
+                score = score + 100 -- 80%+ words match
+            elseif matchRatio >= 0.6 then
+                score = score + 50 -- 60%+ words match
             end
-
-            -- Track best match
-            if score > highestScore then
-                highestScore = score
-                bestMatch = pos
+            
+            -- Penalty for positions with too many extra words (less specific)
+            local posWordCount = 0
+            for _ in posName:gmatch("%S+") do
+                posWordCount = posWordCount + 1
             end
+            if posWordCount > totalSearchWords * 2 then
+                score = score - 20 -- Too many extra words = less likely correct
+            end
+        end
+        
+        -- Store candidate if it has any score
+        if score > 0 then
+            table.insert(candidates, {pos = pos, score = score, matchedWords = matchedWords})
+        end
+        
+        -- Track best match
+        if score > highestScore then
+            highestScore = score
+            bestMatch = pos
         end
     end
     
@@ -400,7 +370,7 @@ local function findBestMatchPosition(searchTerms)
     if highestScore >= 20 then
         local bestMatchRatio = 0
         if bestMatch then
-            local posName = (bestMatch.name or ""):lower()
+            local posName = bestMatch.name:lower()
             local totalWords = #searchTerms
             local matched = 0
             for _, term in ipairs(searchTerms) do
@@ -484,11 +454,11 @@ local function performAutoTeleport(searchTerms)
     end
     
     -- Teleport
-    local result, handle = sampGetPlayerIdByCharHandle(PLAYER_PED)
+    local result, handle = sampGetPlayerIdByCharHandle(playerPed)
     if result then
-        setCharCoordinates(PLAYER_PED, targetPos.x, targetPos.y, targetPos.z)
+        setCharCoordinates(playerPed, targetPos.x, targetPos.y, targetPos.z)
         if targetPos.angle then
-            setCharHeading(PLAYER_PED, targetPos.angle)
+            setCharHeading(playerPed, targetPos.angle)
         end
         if targetPos.interior and targetPos.interior ~= 0 then
             setActiveInterior(targetPos.interior)
@@ -1259,8 +1229,7 @@ end
 -- Get cached distance or calculate new one
 local function getDistanceToPosition(pos)
     local x, y, z = getCharCoordinates(PLAYER_PED)
-    local posName = pos.name or ""
-    local posKey = string.format("%s_%.0f_%.0f", posName, pos.x, pos.y)
+    local posKey = string.format("%s_%.0f_%.0f", pos.name, pos.x, pos.y)
     
     -- Check cache
     if distanceCache[posKey] then
@@ -1368,7 +1337,7 @@ local function loadRoutesFromFile()
     local file = io.open(CONFIG.ROUTES_FILE, "r")
     if not file then return false end
     
-    local content = file:read("*a")
+    local content = file:read("*all")
     file:close()
     
     if content and content ~= "" then
@@ -1376,16 +1345,6 @@ local function loadRoutesFromFile()
     end
     
     return true
-end
-
--- Set position category
-local function setPositionCategory(index, category)
-    if savedPositions[index] then
-        savedPositions[index].category = category
-        savePositionsToFile()
-        return true
-    end
-    return false
 end
 
 local function createRoute(name, positionIndices)
@@ -2608,7 +2567,7 @@ function main()
                         nearestPos = pos
                     end
                 end
-                if nearestPos and nearestDist and nearestDist <= CONFIG.MONEYBAG_TP_DISTANCE then
+                if nearestPos then
                     moneybagPendingX = nearestPos.x
                     moneybagPendingY = nearestPos.y
                     moneybagPendingZ = nearestPos.z

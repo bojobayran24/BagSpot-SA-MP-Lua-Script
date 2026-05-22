@@ -1,5 +1,5 @@
-[06:40:11.950008] (system)	Session started.
-[06:40:11.951009] (debug)	Module handle: 715E0000
+[03:45:58.235160] (system)	Session started.
+[03:45:58.235160] (debug)	Module handle: 72200000
 
 MoonLoader v.026.5-beta loaded.
 Developers: FYP, hnnssy, EvgeN 1137
@@ -7,23 +7,23 @@ Developers: FYP, hnnssy, EvgeN 1137
 Copyright (c) 2016, BlastHack Team
 http://blast.hk/moonloader/
 
-[06:40:11.951009] (info)	Working directory: C:\Games\GTA San Andreas\moonloader
-[06:40:11.951009] (debug)	FP Control: 0009001F
-[06:40:11.951009] (debug)	Game: GTA SA 1.0.0.0 US
-[06:40:11.951009] (system)	Installing pre-game hooks...
-[06:40:11.953007] (system)	Hooks installed.
-[06:40:14.539493] (debug)	Initializing opcode handler table
-[06:40:14.539493] (debug)	package.path = C:\Games\GTA San Andreas\moonloader\lib\?.lua;C:\Games\GTA San Andreas\moonloader\lib\?\init.lua;C:\Games\GTA San Andreas\moonloader\?.lua;C:\Games\GTA San Andreas\moonloader\?\init.lua;.\?.lua;C:\Games\GTA San Andreas\moonloader\lib\?.luac;C:\Games\GTA San Andreas\moonloader\lib\?\init.luac;C:\Games\GTA San Andreas\moonloader\?.luac;C:\Games\GTA San Andreas\moonloader\?\init.luac;.\?.luac
-[06:40:14.539493] (debug)	package.cpath = C:\Games\GTA San Andreas\moonloader\lib\?.dll;
-[06:40:14.543492] (system)	Loading script 'C:\Games\GTA San Andreas\moonloader\automath.lua'...
-[06:40:14.543492] (debug)	New script: 0F9941BC
-[06:40:14.550492] (system)	Auto Math Detector: Loaded successfully.
-[06:40:14.551493] (system)	Loading script 'C:\Games\GTA San Andreas\moonloader\SavePosition.lua'...
-[06:40:14.551493] (debug)	New script: 0F9A847C
-[06:40:14.569494] (system)	SavePosition: Loaded successfully.
-[06:40:20.411557] (system)	Installing post-load hooks...
-[06:40:20.412557] (system)	Hooks installed.
-[06:47:25.979986] (system)	Unloading...
-[06:47:25.979986] (system)	Auto Math Detector: Script terminated. (0F9941BC)
-[06:47:25.980986] (system)	SavePosition: Script terminated. (0F9A847C)
-[06:47:25.991300] (system)	Session terminated.
+[03:45:58.235160] (info)	Working directory: D:\Games\Gta San Andreas\GTA San Andreas\moonloader
+[03:45:58.235160] (debug)	FP Control: 0009001F
+[03:45:58.235160] (debug)	Game: GTA SA 1.0.0.0 US
+[03:45:58.235160] (system)	Installing pre-game hooks...
+[03:45:58.238158] (system)	Hooks installed.
+[03:46:01.167098] (debug)	Initializing opcode handler table
+[03:46:01.167098] (debug)	package.path = D:\Games\Gta San Andreas\GTA San Andreas\moonloader\lib\?.lua;D:\Games\Gta San Andreas\GTA San Andreas\moonloader\lib\?\init.lua;D:\Games\Gta San Andreas\GTA San Andreas\moonloader\?.lua;D:\Games\Gta San Andreas\GTA San Andreas\moonloader\?\init.lua;.\?.lua;D:\Games\Gta San Andreas\GTA San Andreas\moonloader\lib\?.luac;D:\Games\Gta San Andreas\GTA San Andreas\moonloader\lib\?\init.luac;D:\Games\Gta San Andreas\GTA San Andreas\moonloader\?.luac;D:\Games\Gta San Andreas\GTA San Andreas\moonloader\?\init.luac;.\?.luac
+[03:46:01.167098] (debug)	package.cpath = D:\Games\Gta San Andreas\GTA San Andreas\moonloader\lib\?.dll;
+[03:46:01.203075] (system)	Loading script 'D:\Games\Gta San Andreas\GTA San Andreas\moonloader\automath.lua'...
+[03:46:01.203075] (debug)	New script: 0AC039FC
+[03:46:01.216067] (system)	Auto Math Detector: Loaded successfully.
+[03:46:01.216067] (system)	Loading script 'D:\Games\Gta San Andreas\GTA San Andreas\moonloader\SavePosition.lua'...
+[03:46:01.216067] (debug)	New script: 0AC03564
+[03:46:01.251046] (system)	SavePosition: Loaded successfully.
+[03:46:07.329023] (system)	Installing post-load hooks...
+[03:46:07.329023] (system)	Hooks installed.
+[03:48:01.561637] (system)	Unloading...
+[03:48:01.562636] (system)	Auto Math Detector: Script terminated. (0AC039FC)
+[03:48:01.562636] (system)	SavePosition: Script terminated. (0AC03564)
+[03:48:01.573630] (system)	Session terminated.
