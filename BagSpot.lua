@@ -28,22 +28,8 @@ require 'lib.moonloader'
 local vkeys = require 'vkeys'
 local imgui = require 'mimgui'
 local ffi = require 'ffi'
-ffi.cdef[[
-void __stdcall Beep(uint32_t dwFreq, uint32_t dwDuration);
-int __stdcall PlaySoundA(const char* pszSound, void* hmod, uint32_t fdwSound);
-]]
+ffi.cdef[[void __stdcall Beep(uint32_t dwFreq, uint32_t dwDuration);]]
 local kernel32 = ffi.load('kernel32')
-local winmm = ffi.load('winmm')
-
-local SND_ASYNC = 0x0001
-local SND_NODEFAULT = 0x0002
-local SND_FILENAME = 0x00020000
-
-local function playSoundFile(path)
-    xpcall(function()
-        winmm.PlaySoundA(path, nil, SND_FILENAME + SND_ASYNC + SND_NODEFAULT)
-    end, function() end)
-end
 local encoding = require 'encoding'
 encoding.default = 'CP1251'
 local u8 = encoding.UTF8
@@ -142,8 +128,6 @@ local moneybagPendingX = 0
 local moneybagPendingY = 0
 local moneybagPendingZ = 0
 local lastProxBeep = 0
-local respawnTimerStart = 0
-local respawnTimerActive = false
 local showDistance = imgui.new.bool(true)
 
 -- GPS direction tracking (distance delta per frame)
@@ -2731,7 +2715,7 @@ function main()
             end
             if nearBag then
                 if os.clock() - (lastProxBeep or 0) > 2 then
-                    playSoundFile(getWorkingDirectory() .. "\\sounds\\notifmb.mp3")
+                    playBeep(1000, 80)
                     lastProxBeep = os.clock()
                 end
             end
@@ -2789,17 +2773,6 @@ function main()
             if elapsed >= currentTeleportDelay then
                 autoTeleportPending = false
                 performAutoTeleport(pendingSearchTerms)
-            end
-        end
-        
-        -- Goldpot respawn countdown (30s after "found in" detected)
-        if respawnTimerActive then
-            local remaining = 30 - (os.clock() - respawnTimerStart)
-            if remaining > 0 then
-                printStringNow(string.format("~y~GoldPot respawn in ~w~%d~y~s", math.ceil(remaining)), 500)
-            else
-                printStringNow("~g~GoldPot respawn ready!", 2000)
-                respawnTimerActive = false
             end
         end
         
@@ -3004,12 +2977,6 @@ end
 -- ─────────────────────────────────────────────────────────────────────────────
 
 function sampev.onServerMessage(color, text)
-    -- Detect "found in" + "sec" for moneybag respawn countdown (avoids false match on hints)
-    if text:find("found in", 1, true) and text:find("sec", 1, true) then
-        respawnTimerStart = os.clock()
-        respawnTimerActive = true
-    end
-
     -- Detect keywords in the message
     local keyword, searchTerms, hintLocation = detectKeywordInMessage(text)
     
