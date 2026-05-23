@@ -1,5 +1,5 @@
-[03:45:11.118501] (system)	Session started.
-[03:45:11.125375] (debug)	Module handle: 71B20000
+[00:31:03.266453] (system)	Session started.
+[00:31:03.266453] (debug)	Module handle: 716B0000
 
 MoonLoader v.026.5-beta loaded.
 Developers: FYP, hnnssy, EvgeN 1137
@@ -7,23 +7,31 @@ Developers: FYP, hnnssy, EvgeN 1137
 Copyright (c) 2016, BlastHack Team
 http://blast.hk/moonloader/
 
-[03:45:11.125375] (info)	Working directory: C:\Games\GTA San Andreas\moonloader
-[03:45:11.125375] (debug)	FP Control: 0009001F
-[03:45:11.125375] (debug)	Game: GTA SA 1.0.0.0 US
-[03:45:11.125375] (system)	Installing pre-game hooks...
-[03:45:11.127380] (system)	Hooks installed.
-[03:45:13.879192] (debug)	Initializing opcode handler table
-[03:45:13.879192] (debug)	package.path = C:\Games\GTA San Andreas\moonloader\lib\?.lua;C:\Games\GTA San Andreas\moonloader\lib\?\init.lua;C:\Games\GTA San Andreas\moonloader\?.lua;C:\Games\GTA San Andreas\moonloader\?\init.lua;.\?.lua;C:\Games\GTA San Andreas\moonloader\lib\?.luac;C:\Games\GTA San Andreas\moonloader\lib\?\init.luac;C:\Games\GTA San Andreas\moonloader\?.luac;C:\Games\GTA San Andreas\moonloader\?\init.luac;.\?.luac
-[03:45:13.879192] (debug)	package.cpath = C:\Games\GTA San Andreas\moonloader\lib\?.dll;
-[03:45:13.884123] (system)	Loading script 'C:\Games\GTA San Andreas\moonloader\automath.lua'...
-[03:45:13.884123] (debug)	New script: 01AC09F4
-[03:45:13.907116] (system)	Auto Math Detector: Loaded successfully.
-[03:45:13.907116] (system)	Loading script 'C:\Games\GTA San Andreas\moonloader\BagSpot.lua'...
-[03:45:13.907116] (debug)	New script: 0FAA9344
-[03:45:13.957478] (system)	BagSpot: Loaded successfully.
-[03:45:19.778156] (system)	Installing post-load hooks...
-[03:45:19.778156] (system)	Hooks installed.
-[03:46:35.628820] (system)	Unloading...
-[03:46:35.628820] (system)	Auto Math Detector: Script terminated. (01AC09F4)
-[03:46:35.628820] (system)	BagSpot: Script terminated. (0FAA9344)
-[03:46:35.637725] (system)	Session terminated.
+[00:31:03.266453] (info)	Working directory: D:\Games\Gta San Andreas\GTA San Andreas\moonloader
+[00:31:03.266453] (debug)	FP Control: 0009001F
+[00:31:03.266453] (debug)	Game: GTA SA 1.0.0.0 US
+[00:31:03.267451] (system)	Installing pre-game hooks...
+[00:31:03.270449] (system)	Hooks installed.
+[00:31:06.058995] (debug)	Initializing opcode handler table
+[00:31:06.058995] (debug)	package.path = D:\Games\Gta San Andreas\GTA San Andreas\moonloader\lib\?.lua;D:\Games\Gta San Andreas\GTA San Andreas\moonloader\lib\?\init.lua;D:\Games\Gta San Andreas\GTA San Andreas\moonloader\?.lua;D:\Games\Gta San Andreas\GTA San Andreas\moonloader\?\init.lua;.\?.lua;D:\Games\Gta San Andreas\GTA San Andreas\moonloader\lib\?.luac;D:\Games\Gta San Andreas\GTA San Andreas\moonloader\lib\?\init.luac;D:\Games\Gta San Andreas\GTA San Andreas\moonloader\?.luac;D:\Games\Gta San Andreas\GTA San Andreas\moonloader\?\init.luac;.\?.luac
+[00:31:06.058995] (debug)	package.cpath = D:\Games\Gta San Andreas\GTA San Andreas\moonloader\lib\?.dll;
+[00:31:06.071987] (system)	Loading script 'D:\Games\Gta San Andreas\GTA San Andreas\moonloader\antifall.lua'...
+[00:31:06.071987] (debug)	New script: 01D048F4
+[00:31:06.073985] (system)	antifall.lua: Loaded successfully.
+[00:31:06.074986] (system)	Loading script 'D:\Games\Gta San Andreas\GTA San Andreas\moonloader\automath.lua'...
+[00:31:06.074986] (debug)	New script: 01D04A7C
+[00:31:06.096970] (system)	Auto Math Detector: Loaded successfully.
+[00:31:06.096970] (system)	Loading script 'D:\Games\Gta San Andreas\GTA San Andreas\moonloader\BagSpot.lua'...
+[00:31:06.096970] (debug)	New script: 01D04C04
+[00:31:06.133949] (system)	BagSpot: Loaded successfully.
+[00:31:06.133949] (system)	Loading script 'D:\Games\Gta San Andreas\GTA San Andreas\moonloader\MoneybagHunter.lua'...
+[00:31:06.133949] (debug)	New script: 01D04D8C
+[00:31:06.143942] (system)	Moneybag Hunter: Loaded successfully.
+[00:31:12.152630] (system)	Installing post-load hooks...
+[00:31:12.153629] (system)	Hooks installed.
+[00:40:04.395831] (system)	Unloading...
+[00:40:04.395831] (system)	antifall.lua: Script terminated. (01D048F4)
+[00:40:04.396823] (system)	Auto Math Detector: Script terminated. (01D04A7C)
+[00:40:04.397822] (system)	BagSpot: Script terminated. (01D04C04)
+[00:40:04.400819] (system)	Moneybag Hunter: Script terminated. (01D04D8C)
+[00:40:04.411815] (system)	Session terminated.
