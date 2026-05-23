@@ -6,7 +6,7 @@
     │  Features:                                                             │
     │  • Instant teleport with cooldown                                      │
     │  • PERMANENT SAVE with export/import/merge                             │
-    │  • Categories & Tags                                                   │
+    │  • Tags                                                   │
     │  • Distance calculator & sorting                                       │
     │  • ESP markers for all saved positions (HUNT MODE)                     │
     │  • Route system (sequential teleports)                                 │
@@ -16,7 +16,7 @@
     │  • PROXIMITY PULSE: Visual and audio indicators for nearby moneybags   │
     │                                                                        │
     │  Hotkey: F10 - Menu | F9 - Toggle ESP                                 │
-    │  Commands: /spos, /lpos, /poslist, /route, /clearfocus, /mbcmd        │
+    │  Commands: /spos, /lpos, /poslist, /uc, /route, /clearfocus, /mbcmd   │
     └─────────────────────────────────────────────────────────────────────────┘
 ]]
 
@@ -81,10 +81,6 @@ local CONFIG = {
         WARNING = imgui.ImVec4(1.0, 0.5, 0.0, 1.0),
         ROUTE = imgui.ImVec4(0.5, 0.0, 0.8, 1.0)
     },
-    CATEGORIES = {
-        "All", "Events", "Spots", "Safe Zones", "Resources", "Custom"
-    },
-    
     ESP_COLORS = {
         DEFAULT = 0xFFFFFFFF
     }
@@ -172,6 +168,7 @@ local mergeOnImport = imgui.new.bool(false)
 local goldpotDB = {}
 local goldpotDBLoaded = false
 local goldpotDBPath = getWorkingDirectory() .. "\\config\\allpositions.txt"
+local goldpotNEWPath = getWorkingDirectory() .. "\\config\\GoldpotDB_NEW.json"
 local showGoldpotDB = imgui.new.bool(false)
 local goldpotGroupFilter = imgui.new.int(0)
 local GOLD_GROUPS = {"All", "LS", "SF", "LV", "OTHER", "NEW"}
@@ -311,84 +308,117 @@ local function findBestMatchPosition(searchTerms)
     
     local bestMatch = nil
     local highestScore = 0
-    local candidates = {} -- Store all matches with scores
+    local candidates = {}
     
-    -- Score each position based on how many search terms match
+    -- Score each position
     for i, pos in ipairs(savedPositions) do
         local posName = (pos.name or ""):lower()
         if posName ~= "" then
-            local score = 0
-            local matchedWords = 0
-            local exactMatches = 0
-            local totalSearchWords = #searchTerms
+        local score = 0
+        local matchedWords = 0
+        local exactMatches = 0
+        local totalSearchWords = #searchTerms
+        local firstWordFound = false
+        local unmatchedCount = 0
 
-            -- Check if all terms combined form an exact phrase match (HIGHEST priority)
-            local fullPhrase = table.concat(searchTerms, " ")
-            if posName:find(fullPhrase, 1, true) then
-                score = score + 1000 -- Extremely high score for exact phrase match
-                matchedWords = totalSearchWords
-                exactMatches = totalSearchWords
-            else
-                -- Score individual term matches with better logic
-                for _, term in ipairs(searchTerms) do
-                    term = term:lower()
-                    local termLen = #term
+        -- Exact phrase match (HIGHEST priority)
+        local fullPhrase = table.concat(searchTerms, " ")
+        if posName:find(fullPhrase, 1, true) then
+            score = 1000
+            matchedWords = totalSearchWords
+            exactMatches = totalSearchWords
+            firstWordFound = true
+        else
+            for idx, term in ipairs(searchTerms) do
+                term = term:lower()
+                local termLen = #term
+                local found = false
 
-                    -- Exact word boundary match (highest score)
-                    if posName:match("%f[%w]" .. term .. "%f[%W]") then
-                        score = score + 60
-                        matchedWords = matchedWords + 1
-                        exactMatches = exactMatches + 1
-                    -- Word-prefix match (good for short hints like "Vice")
-                    elseif posName:match("%f[%w]" .. term) then
-                        score = score + 35
-                        matchedWords = matchedWords + 0.75
-                    -- Substring match (lower score, especially for short terms)
-                    elseif posName:find(term, 1, true) then
-                        if termLen <= 4 then
-                            score = score + 8
-                            matchedWords = matchedWords + 0.25
-                        else
-                            score = score + 20
-                            matchedWords = matchedWords + 0.5
-                        end
+                -- Word boundary match
+                if posName:match("%f[%w]" .. term .. "%f[%W]") then
+                    score = score + 60
+                    matchedWords = matchedWords + 1
+                    exactMatches = exactMatches + 1
+                    found = true
+                -- Word-prefix match
+                elseif posName:match("%f[%w]" .. term) then
+                    score = score + 35
+                    matchedWords = matchedWords + 0.75
+                    found = true
+                -- Substring match
+                elseif posName:find(term, 1, true) then
+                    if termLen <= 4 then
+                        score = score + 8
+                        matchedWords = matchedWords + 0.25
+                    else
+                        score = score + 20
+                        matchedWords = matchedWords + 0.5
                     end
+                    found = true
                 end
 
-                -- Bonus: if most words match, give extra points
-                local matchRatio = matchedWords / totalSearchWords
-                if matchRatio >= 0.8 then
-                    score = score + 100
-                elseif matchRatio >= 0.6 then
-                    score = score + 50
-                end
-
-                -- Bonus for mostly exact/prefix matches
-                if exactMatches >= math.max(1, math.floor(totalSearchWords * 0.6)) then
-                    score = score + 30
-                end
-
-                -- Penalty for positions with too many extra words (less specific)
-                local posWordCount = 0
-                for _ in posName:gmatch("%S+") do
-                    posWordCount = posWordCount + 1
-                end
-                if totalSearchWords > 1 and posWordCount > totalSearchWords * 2 then
-                    score = score - 20
-                end
-
-                -- For single-word hints, prefer more descriptive names
-                if totalSearchWords == 1 and posWordCount > 1 and score > 0 then
-                    score = score + math.min(30, posWordCount * 6)
+                if found then
+                    if idx == 1 and (posName:match("%f[%w]" .. term) or posName:find(term, 1, true) == 1) then
+                        firstWordFound = true
+                    end
+                else
+                    unmatchedCount = unmatchedCount + 1
                 end
             end
 
-            -- Store candidate if it has any score
+            -- Group match bonus: if a position's group matches a search term
+            local posGroup = (pos.group or ""):lower()
+            if posGroup ~= "" then
+                for _, term in ipairs(searchTerms) do
+                    if term == posGroup or posGroup:find(term, 1, true) or term:find(posGroup, 1, true) then
+                        score = score + 40
+                        break
+                    end
+                end
+            end
+
+            -- Penalty per unmatched word
+            if unmatchedCount > 0 then
+                score = score - (unmatchedCount * 15)
+            end
+
+            -- First-word bonus
+            if firstWordFound then
+                score = score + 20
+            end
+
+            -- Word match ratio bonus
+            local matchRatio = matchedWords / totalSearchWords
+            if matchRatio >= 0.8 then
+                score = score + 100
+            elseif matchRatio >= 0.6 then
+                score = score + 50
+            end
+
+            -- Exact/prefix match bonus
+            if exactMatches >= math.max(1, math.floor(totalSearchWords * 0.6)) then
+                score = score + 30
+            end
+
+            -- Penalty for positions with many extra words
+            local posWordCount = 0
+            for _ in posName:gmatch("%S+") do
+                posWordCount = posWordCount + 1
+            end
+            if totalSearchWords > 1 and posWordCount > totalSearchWords * 2 then
+                score = score - 20
+            end
+
+            -- For single-word hints, prefer descriptive names
+            if totalSearchWords == 1 and posWordCount > 1 and score > 0 then
+                score = score + math.min(30, posWordCount * 6)
+            end
+        end
+
             if score > 0 then
                 table.insert(candidates, {pos = pos, score = score, matchedWords = matchedWords})
             end
 
-            -- Track best match
             if score > highestScore then
                 highestScore = score
                 bestMatch = pos
@@ -396,8 +426,8 @@ local function findBestMatchPosition(searchTerms)
         end
     end
     
-    -- Only return if score is decent (at least 20 = one term match)
-    if highestScore >= 20 then
+    -- Only return if score is decent (at least 40)
+    if highestScore >= 40 then
         local bestMatchRatio = 0
         if bestMatch then
             local posName = (bestMatch.name or ""):lower()
@@ -434,7 +464,7 @@ local function detectKeywordInMessage(text)
     
     -- Only proceed if we found a keyword AND there's a hint
     if not hasKeyword then
-        return nil, nil
+        return nil, nil, nil
     end
     
     -- Check for "Hint: (location)" pattern - REQUIRED
@@ -448,18 +478,18 @@ local function detectKeywordInMessage(text)
         for word in hintLocation:gmatch("%S+") do
             -- Remove punctuation from word
             word = word:gsub("[^%w]+", "")
-            if #word > 2 then -- Skip very short words like "to", "at"
+            if #word >= 2 then -- Keep short prefixes like "SF", "LS", "LV"
                 table.insert(searchTerms, word:lower())
             end
         end
         
         if #searchTerms > 0 then
-            return detectedKeyword .. " - Hint: " .. hintLocation, searchTerms
+            return detectedKeyword .. " - Hint: " .. hintLocation, searchTerms, hintLocation
         end
     end
     
     -- No hint found = don't auto-teleport
-    return nil, nil
+    return nil, nil, nil
 end
 
 local function performAutoTeleport(searchTerms)
@@ -855,6 +885,64 @@ local function getFilteredGoldpotEntries()
 end
 
 -- ─────────────────────────────────────────────────────────────────────────────
+-- GOLDPOT NEW ENTRIES PERSISTENCE
+-- ─────────────────────────────────────────────────────────────────────────────
+
+local function saveGoldpotNEW()
+    local newEntries = {}
+    for _, entry in ipairs(goldpotDB) do
+        if entry.group == "NEW" then
+            table.insert(newEntries, {name = entry.name, group = "NEW", saved = entry.saved or false})
+        end
+    end
+    if #newEntries == 0 then return true end
+    local jsonData = serializeTable(newEntries, nil, true)
+    local file = io.open(goldpotNEWPath, "w")
+    if file then
+        file:write(jsonData)
+        file:close()
+        return true
+    end
+    return false
+end
+
+local function loadGoldpotNEW()
+    if not doesFileExist(goldpotNEWPath) then return true end
+    local file = io.open(goldpotNEWPath, "r")
+    if not file then return false end
+    local content = file:read("*a")
+    file:close()
+    if not content or content == "" then return true end
+    local func, err = loadstring("return " .. content)
+    if func then
+        local success, data = pcall(func)
+        if success and type(data) == "table" then
+            for _, entry in ipairs(data) do
+                -- Check if already in goldpotDB (might have been added from allpositions.txt)
+                local exists = false
+                for _, existing in ipairs(goldpotDB) do
+                    if normalizeNameDB(existing.name) == normalizeNameDB(entry.name) then
+                        exists = true
+                        break
+                    end
+                end
+                if not exists then
+                    table.insert(goldpotDB, {
+                        name = entry.name,
+                        shortcut = entry.shortcut or "",
+                        group = "NEW",
+                        saved = false,
+                        savedIndex = nil
+                    })
+                end
+            end
+            return true
+        end
+    end
+    return true
+end
+
+-- ─────────────────────────────────────────────────────────────────────────────
 -- HINT ANALYTICS FUNCTIONS
 -- ─────────────────────────────────────────────────────────────────────────────
 
@@ -1151,6 +1239,49 @@ local function formatCoordinates(x, y, z)
     return string.format("%.2f, %.2f, %.2f", x, y, z)
 end
 
+local function doUpdateCoords()
+    if lastHintedSavedIndex and savedPositions[lastHintedSavedIndex] then
+        local px, py, pz = getPlayerPosition()
+        savedPositions[lastHintedSavedIndex].x = px
+        savedPositions[lastHintedSavedIndex].y = py
+        savedPositions[lastHintedSavedIndex].z = pz
+        savedPositions[lastHintedSavedIndex].timestamp = os.time()
+        savePositionsToFile()
+        local msg = "{00FF00}[SavePos]{FFFFFF} Updated coords for: {FFFF00}" .. lastHintedName
+        sampAddChatMessage(msg, 0xFFFFFFFF)
+        setStatusMessage("✓ Updated coords: " .. lastHintedName)
+        return true
+    elseif lastHintedGoldpot then
+        local x, y, z, angle, interior, inVehicle = getPlayerPosition()
+        local newPos = {
+            name = lastHintedGoldpot.name,
+            x = x,
+            y = y,
+            z = z,
+            angle = angle or 0,
+            interior = interior or 0,
+            shortcut = lastHintedGoldpot.shortcut or "",
+            group = lastHintedGoldpot.group or "",
+            timestamp = os.time()
+        }
+        table.insert(savedPositions, newPos)
+        savePositionsToFile()
+        if goldpotDBLoaded then
+            matchGoldpotDatabase()
+            saveGoldpotNEW()
+        end
+        local msg = "{00FF00}[SavePos]{FFFFFF} Saved exact location: {FFFF00}" .. lastHintedGoldpot.name
+        sampAddChatMessage(msg, 0xFFFFFFFF)
+        setStatusMessage("✓ Saved exact location: " .. lastHintedGoldpot.name)
+        lastHintedSavedIndex = #savedPositions
+        lastHintedGoldpot = nil
+        return true
+    else
+        sampAddChatMessage("{FF6600}[SavePos]{FFFFFF} No hint detected yet. Wait for a hint first.", 0xFFFFFFFF)
+        return false
+    end
+end
+
 -- ─────────────────────────────────────────────────────────────────────────────
 -- NEW ENHANCED FEATURES
 -- ─────────────────────────────────────────────────────────────────────────────
@@ -1376,16 +1507,6 @@ local function loadRoutesFromFile()
     end
     
     return true
-end
-
--- Set position category
-local function setPositionCategory(index, category)
-    if savedPositions[index] then
-        savedPositions[index].category = category
-        savePositionsToFile()
-        return true
-    end
-    return false
 end
 
 local function createRoute(name, positionIndices)
@@ -1620,41 +1741,7 @@ local function renderMenu()
     imgui.PushStyleColor(imgui.Col.Button, ucColor)
     imgui.PushStyleColor(imgui.Col.Text, hasHint and imgui.ImVec4(1.0, 1.0, 1.0, 1.0) or imgui.ImVec4(0.5, 0.5, 0.5, 0.5))
     if imgui.Button("📍 Update Coords", imgui.ImVec2(130, 0)) then
-        if lastHintedSavedIndex and savedPositions[lastHintedSavedIndex] then
-            local px, py, pz = getPlayerPosition()
-            savedPositions[lastHintedSavedIndex].x = px
-            savedPositions[lastHintedSavedIndex].y = py
-            savedPositions[lastHintedSavedIndex].z = pz
-            savedPositions[lastHintedSavedIndex].timestamp = os.time()
-            savePositionsToFile()
-            local msg = "{00FF00}[SavePos]{FFFFFF} Updated coords for: {FFFF00}" .. lastHintedName
-            sampAddChatMessage(msg, 0xFFFFFFFF)
-            setStatusMessage("✓ Updated coords: " .. lastHintedName)
-        elseif lastHintedGoldpot then
-            local x, y, z, angle, interior, inVehicle = getPlayerPosition()
-            local newPos = {
-                name = lastHintedGoldpot.name,
-                x = x,
-                y = y,
-                z = z,
-                angle = angle or 0,
-                interior = interior or 0,
-                category = lastHintedGoldpot.group or "Custom",
-                shortcut = lastHintedGoldpot.shortcut or "",
-                group = lastHintedGoldpot.group or "",
-                timestamp = os.time()
-            }
-            table.insert(savedPositions, newPos)
-            savePositionsToFile()
-            if goldpotDBLoaded then matchGoldpotDatabase() end
-            local msg = "{00FF00}[SavePos]{FFFFFF} Saved exact location: {FFFF00}" .. lastHintedGoldpot.name
-            sampAddChatMessage(msg, 0xFFFFFFFF)
-            setStatusMessage("✓ Saved exact location: " .. lastHintedGoldpot.name)
-            lastHintedSavedIndex = #savedPositions
-            lastHintedGoldpot = nil
-        else
-            sampAddChatMessage("{FF6600}[SavePos]{FFFFFF} No hint detected yet. Wait for a hint first.", 0xFFFFFFFF)
-        end
+        doUpdateCoords()
     end
     imgui.PopStyleColor()
     imgui.PopStyleColor()
@@ -1730,7 +1817,10 @@ local function renderMenu()
             saveCounter = saveCounter + 1
             
             if savePositionsToFile() then
-                if goldpotDBLoaded then matchGoldpotDatabase() end
+                if goldpotDBLoaded then
+                    matchGoldpotDatabase()
+                    saveGoldpotNEW()
+                end
                 setStatusMessage("✓ Saved: " .. name .. " (Total: " .. #savedPositions .. ")")
                 
                 -- Auto-backup every X saves
@@ -1805,7 +1895,10 @@ local function renderMenu()
     
     if imgui.Button("Reload From File", imgui.ImVec2(150, 30)) then
         if loadPositionsFromFile() then
-            if goldpotDBLoaded then matchGoldpotDatabase() end
+            if goldpotDBLoaded then
+                matchGoldpotDatabase()
+                saveGoldpotNEW()
+            end
             setStatusMessage("✓ Reloaded " .. #savedPositions .. " positions from file")
         else
             setStatusMessage("✗ Failed to reload positions")
@@ -1981,30 +2074,6 @@ local function renderMenu()
                 imgui.Text(os.date("%Y-%m-%d %H:%M", pos.timestamp))
             end
             
-            -- Category selector
-            imgui.Text("Category:")
-            imgui.SameLine()
-            local currentCat = pos.category or "Custom"
-            if imgui.Button(currentCat .. "##CatSel" .. i, imgui.ImVec2(120, 20)) then
-                -- Cycle through categories (skip "All")
-                local catIndex = 1 -- Start from "Events"
-                for idx = 2, #CONFIG.CATEGORIES do
-                    if CONFIG.CATEGORIES[idx] == currentCat then
-                        catIndex = idx
-                        break
-                    end
-                end
-                -- Go to next category
-                catIndex = catIndex + 1
-                if catIndex > #CONFIG.CATEGORIES then
-                    catIndex = 2 -- Skip "All", go to "Events"
-                end
-                setPositionCategory(i, CONFIG.CATEGORIES[catIndex])
-            end
-            if imgui.IsItemHovered() then
-                imgui.SetTooltip("Click to cycle category")
-            end
-            
             imgui.Spacing()
             
             -- Action buttons
@@ -2068,7 +2137,10 @@ local function renderMenu()
             if imgui.Button("Yes, Delete", imgui.ImVec2(130, 0)) then
                 table.remove(savedPositions, deleteIndex)
                 savePositionsToFile()
-                if goldpotDBLoaded then matchGoldpotDatabase() end
+                if goldpotDBLoaded then
+                    matchGoldpotDatabase()
+                    saveGoldpotNEW()
+                end
                 setStatusMessage("✓ Position deleted")
                 showConfirmDelete[0] = false
             end
@@ -2453,6 +2525,8 @@ function main()
     
     -- Load goldpot database and match with saved positions
     if loadGoldpotDatabase() then
+        -- Load persisted NEW entries from previous sessions
+        loadGoldpotNEW()
         matchGoldpotDatabase()
         -- Save any newly-matched shortcuts/groups to file
         savePositionsToFile()
@@ -2493,7 +2567,10 @@ function main()
         
         table.insert(savedPositions, newPos)
         savePositionsToFile()
-        if goldpotDBLoaded then matchGoldpotDatabase() end
+        if goldpotDBLoaded then
+            matchGoldpotDatabase()
+            saveGoldpotNEW()
+        end
         
         sampAddChatMessage("{00FF00}[SavePos]{FFFFFF} Saved: " .. name .. " (Total: " .. #savedPositions .. ")", 0xFFFFFFFF)
     end)
@@ -2555,7 +2632,11 @@ function main()
         end
     end)
     
-    sampAddChatMessage("{FFFF00}F10 menu | F9 ESP | /spos /lpos /poslist /autotp /clearfocus", 0xFFFFFFFF)
+    sampRegisterChatCommand("uc", function()
+        doUpdateCoords()
+    end)
+    
+    sampAddChatMessage("{FFFF00}F10 menu | F9 ESP | /uc /spos /lpos /poslist /autotp /clearfocus", 0xFFFFFFFF)
     sampAddChatMessage("{00BFFF}[Info]{FFFFFF} F10 > Moneybags: ON to track $ pickups (model 1550)", 0xFFFFFFFF)
     if autoTeleportEnabled[0] then
         sampAddChatMessage("{00FF00}[AutoTP]{FFFFFF} Auto-Teleport is ENABLED", 0xFFFFFFFF)
@@ -2845,9 +2926,9 @@ end
 
 function sampev.onServerMessage(color, text)
     -- Detect keywords in the message
-    local keyword, searchTerms = detectKeywordInMessage(text)
+    local keyword, searchTerms, hintLocation = detectKeywordInMessage(text)
     
-    if keyword and searchTerms then
+    if keyword and searchTerms and hintLocation then
         -- Track analytics: build search hint text
         local hintText = ""
         for _, word in ipairs(searchTerms) do
@@ -2888,10 +2969,10 @@ function sampev.onServerMessage(color, text)
                     playBeep(880, 200)
                 end
             else
-                trackHint(hintText, "", "")
+                trackHint(hintLocation, "", "")
                 -- Add as NEW goldpot DB entry if not already in DB
                 local newEntry = nil
-                local hintNorm = normalizeNameDB(hintText)
+                local hintNorm = normalizeNameDB(hintLocation)
                 if hintNorm ~= "" then
                     for _, entry in ipairs(goldpotDB) do
                         if normalizeNameDB(entry.name) == hintNorm then
@@ -2901,39 +2982,63 @@ function sampev.onServerMessage(color, text)
                     end
                     if not newEntry then
                         newEntry = {
-                            name = hintText,
+                            name = hintLocation,
                             shortcut = "",
                             group = "NEW",
                             saved = false,
                             savedIndex = nil
                         }
                         table.insert(goldpotDB, newEntry)
+                        saveGoldpotNEW()
                     end
                 end
-                lastHintedName = hintText
+                lastHintedName = hintLocation
                 lastHintedSavedIndex = nil
                 lastHintedGoldpot = newEntry
-                sampAddChatMessage("{FF6600}[SavePos]{FFFFFF} Unknown hint added to DB as NEW: {FFFF00}" .. hintText, 0xFFFFFFFF)
-                printStringNow("~y~" .. hintText .. "~n~~c~NEW~w~: Check Goldpot DB", 3000)
+                sampAddChatMessage("{FF6600}[SavePos]{FFFFFF} Unknown hint added to DB as NEW: {FFFF00}" .. hintLocation, 0xFFFFFFFF)
+                printStringNow("~y~" .. hintLocation .. "~n~~c~NEW~w~: Check Goldpot DB", 3000)
             end
             saveHintAnalytics()
             return
         end
         
-        -- 50% confidence threshold
-        if matchRatio < 0.5 then
-            sampAddChatMessage(string.format("{FFFF00}[Focus]{FFFFFF} Weak match (%.0f%%) — no focus", matchRatio * 100), 0xFFFFFFFF)
-            trackHint(targetPos.name or hintText, targetPos.shortcut or "", targetPos.group or "")
-            saveHintAnalytics()
-            lastHintedName = targetPos.name
-            lastHintedGoldpot = nil
-            for idx, pos in ipairs(savedPositions) do
-                if pos == targetPos then
-                    lastHintedSavedIndex = idx
-                    break
+        -- 60% confidence threshold
+        if matchRatio < 0.6 then
+            sampAddChatMessage(string.format("{FFFF00}[Focus]{FFFFFF} Low confidence (%.0f%%) — adding to NEW tab", matchRatio * 100), 0xFFFFFFFF)
+            
+            -- Also add to NEW goldpot DB since weak match = likely different location
+            local hintNorm = normalizeNameDB(hintLocation)
+            if hintNorm ~= "" then
+                local foundInDB = false
+                for _, entry in ipairs(goldpotDB) do
+                    if normalizeNameDB(entry.name) == hintNorm then
+                        foundInDB = true
+                        lastHintedGoldpot = entry
+                        lastHintedName = entry.name
+                        entry.saved = false
+                        entry.savedIndex = nil
+                        break
+                    end
+                end
+                if not foundInDB then
+                    local newEntry = {
+                        name = hintLocation,
+                        shortcut = "",
+                        group = "NEW",
+                        saved = false,
+                        savedIndex = nil
+                    }
+                    table.insert(goldpotDB, newEntry)
+                    saveGoldpotNEW()
+                    lastHintedGoldpot = newEntry
+                    lastHintedName = hintLocation
                 end
             end
-            printStringNow("~y~" .. (targetPos.name or hintText) .. "~n~~w~Weak match (" .. string.format("%.0f%%)", matchRatio * 100) .. ")", 3000)
+            trackHint(lastHintedName, "", "")
+            saveHintAnalytics()
+            lastHintedSavedIndex = nil
+            printStringNow("~y~" .. hintLocation .. "~n~~c~NEW~w~: Added to Goldpot DB", 3000)
+            sampAddChatMessage("{FF6600}[SavePos]{FFFFFF} Added to NEW tab: {FFFF00}" .. hintLocation, 0xFFFFFFFF)
             return
         end
         
