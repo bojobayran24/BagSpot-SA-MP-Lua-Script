@@ -128,6 +128,8 @@ local moneybagPendingX = 0
 local moneybagPendingY = 0
 local moneybagPendingZ = 0
 local lastProxBeep = 0
+local respawnTimerStart = 0
+local respawnTimerActive = false
 local showDistance = imgui.new.bool(true)
 
 -- GPS direction tracking (distance delta per frame)
@@ -2776,6 +2778,17 @@ function main()
             end
         end
         
+        -- Goldpot respawn countdown (30s after "found in" detected)
+        if respawnTimerActive then
+            local remaining = 30 - (os.clock() - respawnTimerStart)
+            if remaining > 0 then
+                printStringNow(string.format("~y~GoldPot respawn in ~w~%d~y~s", math.ceil(remaining)), 500)
+            else
+                printStringNow("~g~GoldPot respawn ready!", 2000)
+                respawnTimerActive = false
+            end
+        end
+        
         -- Update cooldown counter
         local currentTime = os.clock()
         local timeSinceLast = currentTime - lastTeleportTime
@@ -2977,6 +2990,12 @@ end
 -- ─────────────────────────────────────────────────────────────────────────────
 
 function sampev.onServerMessage(color, text)
+    -- Detect "found in" for moneybag respawn countdown
+    if text:find("found in", 1, true) then
+        respawnTimerStart = os.clock()
+        respawnTimerActive = true
+    end
+
     -- Detect keywords in the message
     local keyword, searchTerms, hintLocation = detectKeywordInMessage(text)
     
