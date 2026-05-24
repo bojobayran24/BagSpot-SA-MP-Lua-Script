@@ -1,11 +1,12 @@
 --[[
-    Moneybag Hunter v3.1
-    Cluster-skipping scan: After checking a position, clears all nearby (300m)
-    positions too — no redundant TPs. /hunt toggle | /hunt status | /hunt reload
+    Moneybag Hunter v3.3
+    Two-Phase Routing: Phase 1 = coarse sweep with 250m skip radius,
+    Phase 2 = visit every skipped node. 100% coverage, faster detection.
+    /hunt toggle | /hunt status | /hunt reload
 ]]
 script_name("Moneybag Hunter")
 script_author("BOJO Dev")
-script_version("3.1")
+script_version("3.3")
 
 require 'lib.moonloader'
 local sampev = require 'lib.samp.events'
@@ -16,8 +17,9 @@ local u8 = encoding.UTF8
 local POSITIONS_FILE = getWorkingDirectory() .. "\\config\\SavedPositions.json"
 local MODEL_MONEYBAG = 1550
 local MONEYBAG_DETECT_DIST = 300.0
-local CLEAR_RADIUS = 300.0
+local CLEAR_RADIUS = 250.0
 local STREAM_WAIT_MS = 800
+local FAST_WAIT_MS = 250
 local Z_SAFETY_OFFSET = 5.0
 
 local scanActive = false
@@ -28,13 +30,19 @@ local foundBag = false
 local loopCount = 0
 local lastTeleportName = ""
 local totalTeleports = 0
-local cleared = {}
-local clearedCount = 0
+local scanned = {}
+local skipped = {}
+local scannedCount = 0
+local phase = 1
 local streamWaitStart = 0
 
-local function chat(msg, color)
+local C = { GOLD = "{BFA100}", GREEN = "{33AA33}", CYAN = "{33CCFF}", GRAY = "{888888}", RED = "{FF5555}", WHITE = "{FFFFFF}" }
+local PREFIX = C.GOLD .. "[H]" .. C.WHITE .. " > "
+
+local function msg(kind, text)
     if isSampAvailable() then
-        sampAddChatMessage("{BFA100}[Hunt]{FFFFFF} " .. msg, color or 0xFFFFFFFF)
+        local colors = { found = C.GREEN, scan = C.GOLD, passive = C.GRAY, status = C.CYAN, error = C.RED, info = C.WHITE }
+        sampAddChatMessage(PREFIX .. (colors[kind] or colors.info) .. text, 0xFFFFFFFF)
     end
 end
 
@@ -69,13 +77,8 @@ local function loadPositions()
     return #positions > 0, #positions
 end
 
---[[
-  SMART SCAN: For each saved position, check if ANY tracked moneybag
-  is within 300m of that position's coordinates. If found, teleport there
-  directly — no need to TP to every position one by one.
-]]
 local function smartFindTarget()
-    if not next(moneybags) then return nil end  -- no moneybags tracked
+    if not next(moneybags) then return nil end
 
     local bestPos, bestDist, bestBag = nil, MONEYBAG_DETECT_DIST, nil
 
@@ -113,27 +116,28 @@ local function teleportTo(pos)
     totalTeleports = totalTeleports + 1
 end
 
-local function markClusterCleared(posIdx)
-    if cleared[posIdx] then return end
-    cleared[posIdx] = true
-    clearedCount = clearedCount + 1
-    local cx, cy, cz = positions[posIdx].x, positions[posIdx].y, positions[posIdx].z
-    for i, pos in ipairs(positions) do
-        if not cleared[i] then
-            local d = dist3d(cx, cy, cz, pos.x, pos.y, pos.z)
-            if d < CLEAR_RADIUS then
-                cleared[i] = true
-                clearedCount = clearedCount + 1
-            end
-        end
-    end
-end
-
-local function findNearestUncleared()
+-- Finds nearest position eligible for Phase 1: not scanned AND not skipped
+local function findNearestPhase1()
     local px, py, pz = getCharCoordinates(PLAYER_PED)
     local bestIdx, bestDist = nil, math.huge
     for i, pos in ipairs(positions) do
-        if not cleared[i] then
+        if not scanned[i] and not skipped[i] then
+            local d = dist3d(px, py, pz, pos.x, pos.y, pos.z)
+            if d < bestDist then
+                bestDist = d
+                bestIdx = i
+            end
+        end
+    end
+    return bestIdx
+end
+
+-- Finds nearest skipped position for Phase 2: not scanned but IS skipped
+local function findNearestPhase2()
+    local px, py, pz = getCharCoordinates(PLAYER_PED)
+    local bestIdx, bestDist = nil, math.huge
+    for i, pos in ipairs(positions) do
+        if not scanned[i] and skipped[i] then
             local d = dist3d(px, py, pz, pos.x, pos.y, pos.z)
             if d < bestDist then
                 bestDist = d
@@ -145,23 +149,21 @@ local function findNearestUncleared()
 end
 
 local function startScan()
-    if not isSampAvailable() then chat("You need to be in SA:MP first"); return end
-    if #positions == 0 then chat("No positions loaded! Use /hunt reload"); return end
+    if not isSampAvailable() then msg("error", "You need to be in SA:MP first"); return end
+    if #positions == 0 then msg("error", "No positions loaded. Use /hunt reload"); return end
 
-    -- SMART: first check if any saved position has a moneybag within 300m
     local target, dist, bag = smartFindTarget()
     if target then
-        chat(("MONEYBAG LOCATED near '%s' (%.1fm) — warping..."):format(target.name or "Unnamed", dist))
+        msg("found", ("Located near '%s' (%.1fm)"):format(target.name or "Unnamed", dist))
         teleportTo(target)
         foundBag = true
         return
     end
 
-    -- No match found — start cluster-skipping scan
-    cleared = {}; clearedCount = 0; loopCount = 0; foundBag = false; totalTeleports = 0
-    currentIndex = findNearestUncleared() or 1
+    scanned = {}; skipped = {}; scannedCount = 0; loopCount = 0; foundBag = false; totalTeleports = 0; phase = 1
+    currentIndex = findNearestPhase1() or 1
     if currentIndex <= #positions then
-        chat(("Smart scan: no matches. Starting cluster scan from '%s'..."):format(positions[currentIndex].name or "Unnamed"))
+        msg("scan", ("Phase 1 starting at '%s'"):format(positions[currentIndex].name or "Unnamed"))
         teleportTo(positions[currentIndex])
         streamWaitStart = os.clock()
     end
@@ -181,20 +183,19 @@ local function getNearestMoneybag()
 end
 
 local function stopScan()
-    if not scanActive then chat("Scan is not active"); return end
+    if not scanActive then msg("error", "Scan is not running"); return end
     scanActive = false
     local _, _, bc = getNearestMoneybag()
-    chat(("Scan OFF — TP: %d, Cleared: %d/%d, Bags: %d"):format(totalTeleports, clearedCount, #positions, bc))
+    msg("status", ("Scan stopped | TP: %d | P%d: %d/%d | Bags: %d"):format(totalTeleports, phase, scannedCount, #positions, bc))
 end
 
 function sampev.onCreatePickup(id, model, pickupType, position)
     if model == MODEL_MONEYBAG then
         moneybags[id] = {x = position.x, y = position.y, z = position.z}
-        -- If scan is running, immediately check if this new bag is near a saved position
         if scanActive and not foundBag then
             local target, dist, _ = smartFindTarget()
             if target then
-                chat(("MONEYBAG SPAWNED near '%s' (%.1fm) — warping!"):format(target.name or "Unnamed", dist))
+                msg("found", ("Spawned near '%s' (%.1fm) — warping"):format(target.name or "Unnamed", dist))
                 teleportTo(target)
                 foundBag = true; scanActive = false
             end
@@ -205,7 +206,7 @@ function sampev.onDestroyPickup(id) moneybags[id] = nil end
 function sampev.onSendPickedUpPickup(pickupId)
     if moneybags[pickupId] then
         moneybags[pickupId] = nil
-        chat("Moneybag was picked up by someone")
+        msg("info", "Moneybag was picked up by someone else")
     end
 end
 
@@ -218,27 +219,25 @@ local function onCommand(params)
     if sub == "status" then
         local _, _, bc = getNearestMoneybag()
         if scanActive then
-            local remaining = #positions - clearedCount
-            chat(("At '%s' | TP#%d | Cleared %d/%d (%d remain) | Bags: %d"):format(
-                positions[currentIndex].name or "Unnamed", totalTeleports, clearedCount, #positions, remaining, bc))
+            local remaining = #positions - scannedCount
+            msg("status", ("P%d: %d/%d | %d remain | bags: %d"):format(phase, scannedCount, #positions, remaining, bc))
         elseif foundBag then
-            chat(("MONEYBAG FOUND near %s | TP#%d"):format(lastTeleportName, totalTeleports))
+            msg("found", ("Located at '%s' | TP: %d"):format(lastTeleportName, totalTeleports))
         else
-            -- Show smart scan info
             local target, dist, _ = smartFindTarget()
             if target then
-                chat(("READY: '%s' has a moneybag %.1fm away — /hunt to go!"):format(target.name or "Unnamed", dist))
+                msg("passive", ("Detected near '%s' (%.1fm) \183 /hunt to travel"):format(target.name or "Unnamed", dist))
             else
-                chat(("IDLE — %d positions, %d bags tracked | /hunt to start"):format(#positions, bc))
+                msg("status", ("Idle \183 %d positions \183 %d bags tracked \183 /hunt to start"):format(#positions, bc))
             end
         end
     elseif sub == "reload" then
         local ok, n = loadPositions()
-        chat(ok and ("Reloaded %d positions"):format(n) or "Reload failed")
+        msg(ok and "info" or "error", ok and ("Reloaded %d positions"):format(n) or "Reload failed")
     elseif sub == "" then
         if scanActive then stopScan() else startScan() end
     else
-        chat("Commands: /hunt (toggle), /hunt status, /hunt reload")
+        msg("info", "Commands: /hunt (toggle) /hunt status /hunt reload")
     end
     return 1
 end
@@ -248,7 +247,7 @@ function main()
     wait(5000)
 
     local ok, n = loadPositions()
-    sampAddChatMessage("{BFA100}[Hunt]{FFFFFF} " .. (ok and ("Loaded " .. n .. " positions | Smart scan ready") or "Load error"), 0xFFFFFFFF)
+    msg(ok and "info" or "error", ok and ("Loaded %d positions"):format(n) or "Load error")
 
     sampRegisterChatCommand("hunt", onCommand)
 
@@ -259,42 +258,66 @@ function main()
             local bagCount = 0
             for _ in pairs(moneybags) do bagCount = bagCount + 1 end
 
-            -- Passive smart check (even when idle)
+            -- Passive smart check
             if not scanActive and not foundBag and bagCount > 0 then
                 local target, dist = smartFindTarget()
                 if target and lastTeleportName ~= target.name then
-                    chat(("SMART: '%s' has moneybag nearby (%.1fm) — /hunt to go"):format(target.name or "Unnamed", dist))
+                    msg("passive", ("Detected near '%s' (%.1fm) \183 /hunt to travel"):format(target.name or "Unnamed", dist))
                     lastTeleportName = target.name
                 end
             end
 
-            -- Scan logic with cluster skipping
+            -- Two-Phase scan logic
             if scanActive and not foundBag then
-                -- Always re-check for any new moneybag
                 local target, dist = smartFindTarget()
                 if target then
                     foundBag = true; scanActive = false
-                    chat(("MONEYBAG FOUND near '%s' (%.1fm) — warping!"):format(target.name or "Unnamed", dist))
+                    msg("found", ("Located near '%s' (%.1fm) — warping"):format(target.name or "Unnamed", dist))
                     teleportTo(target)
                 elseif streamWaitStart > 0 then
-                    -- Waiting for pickups to stream in at current position
                     local elapsed = (os.clock() - streamWaitStart) * 1000
-                    if elapsed >= STREAM_WAIT_MS then
-                        -- No match here — mark cluster cleared, move to next
-                        markClusterCleared(currentIndex)
-                        local remaining = #positions - clearedCount
-                        chat(("No bags at '%s'. Cleared %d/%d (%d remain)"):format(
-                            positions[currentIndex].name or "Unnamed", clearedCount, #positions, remaining))
-                        local nextIdx = findNearestUncleared()
+                    local waitMs = bagCount > 0 and STREAM_WAIT_MS or FAST_WAIT_MS
+                    if elapsed >= waitMs then
+                        -- Mark current position as scanned
+                        scanned[currentIndex] = true
+                        scannedCount = scannedCount + 1
+
+                        if phase == 1 then
+                            -- Phase 1: skip nearby positions
+                            local cx, cy, cz = positions[currentIndex].x, positions[currentIndex].y, positions[currentIndex].z
+                            for i, pos in ipairs(positions) do
+                                if not scanned[i] and not skipped[i] then
+                                    if dist3d(cx, cy, cz, pos.x, pos.y, pos.z) < CLEAR_RADIUS then
+                                        skipped[i] = true
+                                    end
+                                end
+                            end
+                        end
+
+                        -- Find next target
+                        local nextIdx = phase == 1 and findNearestPhase1() or findNearestPhase2()
+                        if not nextIdx and phase == 1 then
+                            -- Phase 1 exhausted — switch to Phase 2
+                            phase = 2
+                            nextIdx = findNearestPhase2()
+                            if nextIdx then
+                                msg("scan", ("Phase 1 done. Starting Phase 2 gap fill (%d positions)"):format(#positions - scannedCount))
+                            end
+                        end
+
                         if nextIdx then
                             currentIndex = nextIdx
+                            msg("scan", ("P%d: %d/%d \183 %s"):format(phase, scannedCount + 1, #positions, positions[currentIndex].name or "Unnamed"))
                             teleportTo(positions[currentIndex])
                             streamWaitStart = os.clock()
                         else
+                            -- Full cycle complete — reset
                             loopCount = loopCount + 1
-                            chat(("Full clear #%d. %d bags tracked — no match. /hunt to re-scan"):format(loopCount, bagCount))
-                            scanActive = false
-                            streamWaitStart = 0
+                            scanned = {}; skipped = {}; scannedCount = 0; phase = 1
+                            currentIndex = findNearestPhase1() or 1
+                            msg("scan", ("Cycle #%d done \183 %d bags \183 /hunt to stop"):format(loopCount, bagCount))
+                            teleportTo(positions[currentIndex])
+                            streamWaitStart = os.clock()
                         end
                     end
                 end

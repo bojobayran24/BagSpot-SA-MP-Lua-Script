@@ -35,6 +35,16 @@ encoding.default = 'CP1251'
 local u8 = encoding.UTF8
 local sampev = require 'lib.samp.events'
 
+local C = { GOLD = "{BFA100}", GREEN = "{33AA33}", CYAN = "{33CCFF}", GRAY = "{888888}", RED = "{FF5555}", WHITE = "{FFFFFF}", YELLOW = "{FFFF00}", ORANGE = "{FFA500}" }
+local PREFIX = C.GOLD .. "[BS]" .. C.WHITE .. " > "
+
+local function msg(kind, text)
+    if isSampAvailable() then
+        local colors = { found = C.GREEN, warn = C.ORANGE, status = C.CYAN, error = C.RED, info = C.WHITE, highlight = C.YELLOW, passive = C.GRAY, gold = C.GOLD }
+        sampAddChatMessage(PREFIX .. (colors[kind] or colors.info) .. text, 0xFFFFFFFF)
+    end
+end
+
 -- ─────────────────────────────────────────────────────────────────────────────
 -- CONFIGURATION
 -- ─────────────────────────────────────────────────────────────────────────────
@@ -118,6 +128,7 @@ local espDistance = imgui.new.float(10000.0) -- Default 10km (entire map)
 -- Moneybag Tracker (model 1550 pickup ESP)
 local showMoneybags = imgui.new.bool(false)
 local autoMoneybagTP = imgui.new.bool(false)
+local moneybagGrabber = imgui.new.bool(false)
 local soundAlert = imgui.new.bool(true)
 local moneyBags = {}
 local moneybagTPPending = false
@@ -127,6 +138,12 @@ local moneybagTPCooldown = 0
 local moneybagPendingX = 0
 local moneybagPendingY = 0
 local moneybagPendingZ = 0
+local moneybagOriginX = 0
+local moneybagOriginY = 0
+local moneybagOriginZ = 0
+local moneybagGrabActive = false
+local moneybagGrabTimer = 0
+local GRAB_RETURN_DELAY = 0.2
 local lastProxBeep = 0
 local showDistance = imgui.new.bool(true)
 
@@ -503,7 +520,7 @@ local function performAutoTeleport(searchTerms)
     local currentTime = os.clock()
     if currentTime - lastTeleportTime < CONFIG.TELEPORT_COOLDOWN then
         local remaining = math.ceil(CONFIG.TELEPORT_COOLDOWN - (currentTime - lastTeleportTime))
-        sampAddChatMessage("{FF6600}[AutoTP]{FFFFFF} Teleport cooldown: " .. remaining .. "s remaining", 0xFFFFFFFF)
+        msg("warn", ("Cooldown: %ds remaining"):format(remaining))
         return false
     end
     
@@ -511,7 +528,7 @@ local function performAutoTeleport(searchTerms)
     local targetPos = findBestMatchPosition(searchTerms)
     
     if not targetPos then
-        sampAddChatMessage("{FF6600}[AutoTP]{FFFFFF} No matching position found for the detected keyword", 0xFFFFFFFF)
+        msg("warn", "No matching position found for that keyword")
         return false
     end
     
@@ -531,8 +548,8 @@ local function performAutoTeleport(searchTerms)
         
         lastTeleportTime = currentTime
         
-        sampAddChatMessage("{00FF00}[AutoTP]{FFFFFF} Teleported to: {FFFF00}" .. targetPos.name, 0xFFFFFFFF)
-        sampAddChatMessage("{00BFFF}Position: {FFFFFF}" .. string.format("%.1f, %.1f, %.1f", targetPos.x, targetPos.y, targetPos.z), 0xFFFFFFFF)
+        msg("found", ("Teleported to '%s'"):format(targetPos.name))
+        msg("status", ("Position: %.1f, %.1f, %.1f"):format(targetPos.x, targetPos.y, targetPos.z))
         
         printStringNow("~g~AUTO TELEPORTED!~n~~y~" .. targetPos.name, 3000)
         
@@ -1249,8 +1266,7 @@ local function doUpdateCoords()
         savedPositions[lastHintedSavedIndex].z = pz
         savedPositions[lastHintedSavedIndex].timestamp = os.time()
         savePositionsToFile()
-        local msg = "{00FF00}[BagSpot]{FFFFFF} Updated coords for: {FFFF00}" .. lastHintedName
-        sampAddChatMessage(msg, 0xFFFFFFFF)
+        msg("found", ("Updated coords for '%s'"):format(lastHintedName))
         setStatusMessage("✓ Updated coords: " .. lastHintedName)
         return true
     elseif lastHintedGoldpot then
@@ -1272,14 +1288,13 @@ local function doUpdateCoords()
             matchGoldpotDatabase()
             saveGoldpotNEW()
         end
-        local msg = "{00FF00}[BagSpot]{FFFFFF} Saved exact location: {FFFF00}" .. lastHintedGoldpot.name
-        sampAddChatMessage(msg, 0xFFFFFFFF)
+        msg("found", ("Saved exact location '%s'"):format(lastHintedGoldpot.name))
         setStatusMessage("✓ Saved exact location: " .. lastHintedGoldpot.name)
         lastHintedSavedIndex = #savedPositions
         lastHintedGoldpot = nil
         return true
     else
-        sampAddChatMessage("{FF6600}[BagSpot]{FFFFFF} No hint detected yet. Wait for a hint first.", 0xFFFFFFFF)
+        msg("warn", "No hint detected yet. Wait for a hint first.")
         return false
     end
 end
@@ -1792,8 +1807,8 @@ local function renderMenu()
         -- Check for duplicate positions by coordinates
         local isDupe, dupeIndex, dupePos = isDuplicatePosition(x, y, z, 10.0)
         if isDupe then
-            sampAddChatMessage(string.format("{FF6600}[BagSpot]{FFFFFF} Warning: Position very close to '%s' (%.1fm away)", 
-                dupePos.name, calculateDistance(x, y, z, dupePos.x, dupePos.y, dupePos.z)), 0xFFFFFFFF)
+            msg("warn", ("Position very close to '%s' (%.1fm away)"):format(
+                dupePos.name, calculateDistance(x, y, z, dupePos.x, dupePos.y, dupePos.z)))
         end
         
         -- Check if name already exists
@@ -1828,7 +1843,7 @@ local function renderMenu()
                 -- Auto-backup every X saves
                 if saveCounter % CONFIG.AUTO_BACKUP_INTERVAL == 0 then
                     if createBackup() then
-                        sampAddChatMessage("{00FF00}[BagSpot]{FFFFFF} Auto-backup created", 0xFFFFFFFF)
+                        msg("found", "Auto-backup created")
                     end
                 end
             else
@@ -1855,10 +1870,9 @@ local function renderMenu()
     
     if imgui.Button(buttonText, imgui.ImVec2(120, 40)) then
         autoTeleportEnabled[0] = not autoTeleportEnabled[0]
-        local status = autoTeleportEnabled[0] and "ENABLED" or "DISABLED"
-        local color = autoTeleportEnabled[0] and "{00FF00}" or "{FF0000}"
-        sampAddChatMessage(color .. "[AutoTP]{FFFFFF} Auto-Teleport " .. status, 0xFFFFFFFF)
-        setStatusMessage("✓ Auto-Teleport " .. status)
+        local status = autoTeleportEnabled[0] and "enabled" or "disabled"
+        msg("found", ("Auto-Teleport %s"):format(status))
+        setStatusMessage("✓ Auto-Teleport " .. status:upper())
     end
     
     imgui.PopStyleColor(3)
@@ -1877,10 +1891,10 @@ local function renderMenu()
     
     imgui.PushStyleColor(imgui.Col.Button, CONFIG.COLORS.EXPORT)
     if imgui.Button("EXPORT Positions", imgui.ImVec2(150, 30)) then
-        local success, msg = exportPositions()
-        setStatusMessage(msg)
+        local success, expMsg = exportPositions()
+        setStatusMessage(expMsg)
         if success then
-            sampAddChatMessage("{00FF00}[BagSpot]{FFFFFF} " .. msg, 0xFFFFFFFF)
+            msg("found", expMsg)
         end
     end
     imgui.PopStyleColor()
@@ -2014,8 +2028,17 @@ local function renderMenu()
     if imgui.IsItemHovered() then
         imgui.SetTooltip("Beep on hint detection and moneybag spawn")
     end
+    imgui.SameLine()
+    local grabColor = moneybagGrabber[0] and imgui.ImVec4(0.2, 0.6, 0.8, 1.0) or imgui.ImVec4(0.5, 0.5, 0.5, 0.6)
+    imgui.PushStyleColor(imgui.Col.Button, grabColor)
+    if imgui.Button(moneybagGrabber[0] and "Grabber: ON" or "Grabber: OFF", imgui.ImVec2(100, 25)) then
+        moneybagGrabber[0] = not moneybagGrabber[0]
+    end
+    imgui.PopStyleColor()
+    if imgui.IsItemHovered() then
+        imgui.SetTooltip("Flash-grab: TP to moneybag, auto-return to position")
+    end
 
-    
     imgui.Separator()
     
     -- Sort Mode
@@ -2222,12 +2245,12 @@ local function renderMenu()
         
         if imgui.Button("Import Data", imgui.ImVec2(150, 30)) then
             local text = ffi.string(importText)
-            local success, msg = importFromText(text, mergeOnImport[0])
-            setStatusMessage(msg)
+            local success, impMsg = importFromText(text, mergeOnImport[0])
+            setStatusMessage(impMsg)
             if success then
                 showImportWindow[0] = false
                 ffi.fill(importText, 10000)
-                sampAddChatMessage("{00FF00}[BagSpot]{FFFFFF} " .. msg, 0xFFFFFFFF)
+                msg("found", impMsg)
             end
         end
         
@@ -2358,7 +2381,7 @@ function renderGoldpotDBView()
             elseif entry.shortcut ~= "" then
                 imgui.PushStyleColor(imgui.Col.Button, imgui.ImVec4(0.8, 0.5, 0.0, 1.0))
                 if imgui.Button("Copy Shortcut##gpc" .. idx, imgui.ImVec2(120, 25)) then
-                    sampAddChatMessage(string.format("{FFA500}[GoldpotDB]{FFFFFF} Use %s to reach: {FFFF00}%s", entry.shortcut, entry.name), 0xFFFFFFFF)
+                    msg("highlight", ("Use %s to reach '%s'"):format(entry.shortcut, entry.name))
                     setStatusMessage(string.format("Shortcut: %s for %s", entry.shortcut, entry.name))
                 end
                 imgui.PopStyleColor()
@@ -2555,28 +2578,26 @@ function main()
     
     -- Load saved positions from file
     if loadPositionsFromFile() then
-        sampAddChatMessage("{00BFFF}[BagSpot]{FFFFFF} loaded - " .. #savedPositions .. " positions loaded", 0xFFFFFFFF)
+        msg("status", ("Loaded %d positions"):format(#savedPositions))
     else
-        sampAddChatMessage("{FF0000}[BagSpot]{FFFFFF} Failed to load save file", 0xFFFFFFFF)
+        msg("error", "Failed to load save file")
         savedPositions = {}
     end
     
     -- Load routes
     if loadRoutesFromFile() then
         if #savedRoutes > 0 then
-            sampAddChatMessage("{00BFFF}[BagSpot]{FFFFFF} " .. #savedRoutes .. " routes loaded", 0xFFFFFFFF)
+            msg("status", ("%d routes loaded"):format(#savedRoutes))
         end
     end
     
     -- Load goldpot database and match with saved positions
     if loadGoldpotDatabase() then
-        -- Load persisted NEW entries from previous sessions
         loadGoldpotNEW()
         matchGoldpotDatabase()
-        -- Save any newly-matched shortcuts/groups to file
         savePositionsToFile()
         if #goldpotDB > 0 then
-            sampAddChatMessage("{00BFFF}[GoldpotDB]{FFFFFF} " .. #goldpotDB .. " goldpot entries loaded", 0xFFFFFFFF)
+            msg("status", ("%d goldpot entries loaded"):format(#goldpotDB))
         end
     end
     
@@ -2591,8 +2612,7 @@ function main()
         -- Check if name already exists
         local exists, existingIndex = isPositionNameExists(name)
         if exists then
-            sampAddChatMessage("{FF0000}[BagSpot]{FFFFFF} Position '" .. name .. "' already exists at #" .. existingIndex, 0xFFFFFFFF)
-            sampAddChatMessage("{AAAAAA}Use a different name or delete the existing one first", 0xFFFFFFFF)
+            msg("error", ("Position '%s' already exists at #%d"):format(name, existingIndex))
             return
         end
         
@@ -2617,63 +2637,57 @@ function main()
             saveGoldpotNEW()
         end
         
-        sampAddChatMessage("{00FF00}[BagSpot]{FFFFFF} Saved: " .. name .. " (Total: " .. #savedPositions .. ")", 0xFFFFFFFF)
+        msg("found", ("Saved '%s' (%d total)"):format(name, #savedPositions))
     end)
     
     sampRegisterChatCommand("lpos", function(params)
-        -- Try numeric index first
         local index = tonumber(params)
         if index and savedPositions[index] then
             teleportToPosition(savedPositions[index])
-            sampAddChatMessage("{00FF00}[BagSpot]{FFFFFF} Teleporting to: " .. savedPositions[index].name, 0xFFFFFFFF)
+            msg("found", ("Teleporting to '%s'"):format(savedPositions[index].name))
             return
         end
         
-        -- Try fuzzy name matching
         if params ~= "" then
             local pos, idx, score = findPositionByName(params)
             if pos then
                 teleportToPosition(pos)
-                local matchQuality = score >= 0.9 and "Exact" or score >= 0.7 and "Good" or "Partial"
-                sampAddChatMessage(string.format("{00FF00}[BagSpot]{FFFFFF} Teleporting to: %s [%s match #%d]", 
-                    pos.name, matchQuality, idx), 0xFFFFFFFF)
+                local matchQuality = score >= 0.9 and "exact" or score >= 0.7 and "good" or "partial"
+                msg("found", ("Teleporting to '%s' [%s match #%d]"):format(pos.name, matchQuality, idx))
             else
-                sampAddChatMessage("{FF0000}[BagSpot]{FFFFFF} No position found matching '" .. params .. "'", 0xFFFFFFFF)
-                sampAddChatMessage("{AAAAAA}Use /poslist to see all positions", 0xFFFFFFFF)
+                msg("error", ("No position found matching '%s'"):format(params))
+                msg("info", "Use /poslist to see all positions")
             end
         else
-            sampAddChatMessage("{FF0000}[BagSpot]{FFFFFF} Usage: /lpos [name] or /lpos [index]", 0xFFFFFFFF)
-            sampAddChatMessage("{AAAAAA}Example: /lpos cable | /lpos 5", 0xFFFFFFFF)
+            msg("error", "Usage: /lpos [name] or /lpos [index]")
+            msg("info", "Example: /lpos cable | /lpos 5")
         end
     end)
     
     sampRegisterChatCommand("poslist", function()
-        sampAddChatMessage("{00BFFF}[BagSpot]{FFFFFF} === Saved Positions (" .. #savedPositions .. ") ===", 0xFFFFFFFF)
+        msg("status", ("Positions (%d):"):format(#savedPositions))
         if #savedPositions == 0 then
-            sampAddChatMessage("{AAAAAA}No positions saved. Use /spos to save one.", 0xFFFFFFFF)
+            msg("info", "No positions saved. Use /spos to save one.")
         else
             for i, pos in ipairs(savedPositions) do
-                sampAddChatMessage(string.format("{FFFF00}%d.{FFFFFF} %s - %.1f, %.1f, %.1f", 
-                    i, pos.name, pos.x, pos.y, pos.z), 0xFFFFFFFF)
+                msg("info", ("%d. %s - %.1f, %.1f, %.1f"):format(i, pos.name, pos.x, pos.y, pos.z))
             end
         end
     end)
     
     sampRegisterChatCommand("autotp", function()
         autoTeleportEnabled[0] = not autoTeleportEnabled[0]
-        local status = autoTeleportEnabled[0] and "ENABLED" or "DISABLED"
-        local color = autoTeleportEnabled[0] and "{00FF00}" or "{FF0000}"
-        sampAddChatMessage(color .. "[AutoTP]{FFFFFF} Auto-Teleport " .. status, 0xFFFFFFFF)
-        sampAddChatMessage("{00BFFF}[Info]{FFFFFF} Detects: GoldPOT, Hunt, Events in chat", 0xFFFFFFFF)
+        local status = autoTeleportEnabled[0] and "enabled" or "disabled"
+        msg("found", ("Auto-Teleport %s"):format(status))
     end)
     
     sampRegisterChatCommand("clearfocus", function()
         if espFocusPosition then
             espFocusPosition = nil
             espFocusTime = 0
-            sampAddChatMessage("{00FF00}[Focus]{FFFFFF} ESP focus cleared", 0xFFFFFFFF)
+            msg("found", "ESP focus cleared")
         else
-            sampAddChatMessage("{FFFF00}[Focus]{FFFFFF} No active ESP focus", 0xFFFFFFFF)
+            msg("highlight", "No active ESP focus")
         end
     end)
     
@@ -2681,10 +2695,9 @@ function main()
         doUpdateCoords()
     end)
     
-    sampAddChatMessage("{FFFF00}F10 menu | F9 ESP | /uc /spos /lpos /poslist /autotp /clearfocus", 0xFFFFFFFF)
-    sampAddChatMessage("{00BFFF}[Info]{FFFFFF} F10 > Moneybags: ON to track $ pickups (model 1550)", 0xFFFFFFFF)
+    msg("info", "F10 menu | F9 ESP | /uc /spos /lpos /poslist /autotp /clearfocus")
     if autoTeleportEnabled[0] then
-        sampAddChatMessage("{00FF00}[AutoTP]{FFFFFF} Auto-Teleport is ENABLED", 0xFFFFFFFF)
+        msg("found", "Auto-Teleport is enabled")
     end
     
     -- Main loop
@@ -2693,30 +2706,61 @@ function main()
     while true do
         wait(0)
         
-        -- Update distance cache periodically for performance
-        updateDistanceCache()
+
+
+        -- Update distance cache periodically for performance (wrapped: crash-safe)
+        pcall(updateDistanceCache)
         
-        -- Render ESP markers
-        renderPositionESP()
+        -- Render ESP markers (wrapped: crash-safe)
+        pcall(renderPositionESP)
         
-        -- Render moneybag pickups (model 1550)
-        renderMoneybagESP()
+        -- Render moneybag pickups (model 1550) (wrapped: crash-safe)
+        pcall(renderMoneybagESP)
 
 
         -- Proximity beep (every 2s when within 30m)
         if showMoneybags[0] and soundAlert[0] then
             local mbPx, mbPy, mbPz = getCharCoordinates(PLAYER_PED)
-            local nearBag = false
-            for id, pos in pairs(moneyBags) do
-                if calculateDistance(mbPx, mbPy, mbPz, pos.x, pos.y, pos.z) < 30 then
-                    nearBag = true
-                    break
+            if mbPx then
+                local nearBag = false
+                for id, pos in pairs(moneyBags) do
+                    if calculateDistance(mbPx, mbPy, mbPz, pos.x, pos.y, pos.z) < 30 then
+                        nearBag = true
+                        break
+                    end
+                end
+                if nearBag then
+                    if os.clock() - (lastProxBeep or 0) > 2 then
+                        playBeep(1000, 80)
+                        lastProxBeep = os.clock()
+                    end
                 end
             end
-            if nearBag then
-                if os.clock() - (lastProxBeep or 0) > 2 then
-                    playBeep(1000, 80)
-                    lastProxBeep = os.clock()
+        end
+        
+        -- Standalone Grabber mode (independent of AutoTP)
+        if not autoMoneybagTP[0] and moneybagGrabber[0] and not moneybagGrabActive and not moneybagTPPending then
+            local now = os.clock()
+            if now >= moneybagTPCooldown then
+                local mbPx, mbPy, mbPz = getCharCoordinates(PLAYER_PED)
+                if mbPx then
+                    local nearestDist, nearestPos
+                    for id, pos in pairs(moneyBags) do
+                        local d = calculateDistance(mbPx, mbPy, mbPz, pos.x, pos.y, pos.z)
+                        if not nearestDist or d < nearestDist then
+                            nearestDist = d
+                            nearestPos = pos
+                        end
+                    end
+                    if nearestPos and nearestDist and nearestDist <= CONFIG.MONEYBAG_TP_DISTANCE then
+                        moneybagOriginX, moneybagOriginY, moneybagOriginZ = mbPx, mbPy, mbPz
+                        moneybagGrabActive = true
+                        moneybagGrabTimer = os.clock()
+                        setCharCoordinates(PLAYER_PED, nearestPos.x, nearestPos.y, nearestPos.z)
+                        restoreCameraJumpcut()
+                        moneybagTPCooldown = os.clock() + 5
+                        msg("found", "Grabber: flash-grabbed moneybag!")
+                    end
                 end
             end
         end
@@ -2726,35 +2770,54 @@ function main()
             local now = os.clock()
             if now >= moneybagTPCooldown then
                 local mbPx, mbPy, mbPz = getCharCoordinates(PLAYER_PED)
-                local nearestDist, nearestPos
-                for id, pos in pairs(moneyBags) do
-                    local d = calculateDistance(mbPx, mbPy, mbPz, pos.x, pos.y, pos.z)
-                    if not nearestDist or d < nearestDist then
-                        nearestDist = d
-                        nearestPos = pos
+                if mbPx then
+                    local nearestDist, nearestPos
+                    for id, pos in pairs(moneyBags) do
+                        local d = calculateDistance(mbPx, mbPy, mbPz, pos.x, pos.y, pos.z)
+                        if not nearestDist or d < nearestDist then
+                            nearestDist = d
+                            nearestPos = pos
+                        end
                     end
-                end
-                if nearestPos and nearestDist and nearestDist <= CONFIG.MONEYBAG_TP_DISTANCE then
-                    moneybagPendingX = nearestPos.x
-                    moneybagPendingY = nearestPos.y
-                    moneybagPendingZ = nearestPos.z
-                    moneybagTPPending = true
-                    moneybagTPTime = os.clock()
-                    sampAddChatMessage(string.format("{FFD700}[MB]{FFFFFF} TP to moneybag in %ds...", moneybagTPDelay), -1)
+                    if nearestPos and nearestDist and nearestDist <= CONFIG.MONEYBAG_TP_DISTANCE then
+                        moneybagPendingX = nearestPos.x
+                        moneybagPendingY = nearestPos.y
+                        moneybagPendingZ = nearestPos.z
+                        moneybagTPPending = true
+                        moneybagTPTime = os.clock()
+                        msg("found", ("TP to moneybag in %ds..."):format(moneybagTPDelay))
+                    end
                 end
             end
         end
         if moneybagTPPending then
             local remaining = moneybagTPDelay - (os.clock() - moneybagTPTime)
-            if remaining > 0 then
-                printStringNow(string.format("~y~MB TP in ~w~%d~y~s~w~!", math.ceil(remaining)), 500)
-            else
+            if remaining <= 0 then
                 playBeep(800, 100)
+                -- Save origin if Grabber is enabled
+                if moneybagGrabber[0] and not moneybagGrabActive then
+                    local ox, oy, oz = getCharCoordinates(PLAYER_PED)
+                    moneybagOriginX, moneybagOriginY, moneybagOriginZ = ox, oy, oz
+                    moneybagGrabActive = true
+                    moneybagGrabTimer = os.clock()
+                end
                 setCharCoordinates(PLAYER_PED, moneybagPendingX, moneybagPendingY, moneybagPendingZ)
                 restoreCameraJumpcut()
                 moneybagTPPending = false
+                if not moneybagGrabber[0] then
+                    moneybagTPCooldown = os.clock() + 5
+                end
+                msg("found", "Moneybag grabbed")
+            end
+        end
+        -- Grabber return: after brief delay, TP back to origin
+        if moneybagGrabActive then
+            if os.clock() - moneybagGrabTimer >= GRAB_RETURN_DELAY then
+                setCharCoordinates(PLAYER_PED, moneybagOriginX, moneybagOriginY, moneybagOriginZ)
+                restoreCameraJumpcut()
+                moneybagGrabActive = false
                 moneybagTPCooldown = os.clock() + 5
-                sampAddChatMessage("{FFD700}[MB]{FFFFFF} Teleported to moneybag!", -1)
+                msg("passive", "Returned to origin")
             end
         end
         
@@ -2789,8 +2852,8 @@ function main()
         local isEspKeyPressed = isKeyDown(vkeys.VK_F9)
         if isEspKeyPressed and not espKeyPressed and not sampIsChatInputActive() and not sampIsDialogActive() then
             showESP[0] = not showESP[0]
-            local status = showESP[0] and "ENABLED" or "DISABLED"
-            sampAddChatMessage("{00FF00}[ESP]{FFFFFF} Hunt Mode " .. status, 0xFFFFFFFF)
+            local status = showESP[0] and "enabled" or "disabled"
+            msg("found", ("Hunt Mode %s"):format(status))
             espKeyPressed = true
         elseif not isEspKeyPressed then
             espKeyPressed = false
@@ -3010,13 +3073,15 @@ function sampev.onServerMessage(color, text)
                 lastHintedSavedIndex = goldMatch.saved and goldMatch.savedIndex or nil
                 lastHintedGoldpot = goldMatch.saved and nil or goldMatch
                 if goldMatch.saved then
-                    sampAddChatMessage("{FF6600}[BagSpot]{FFFFFF} Detected keyword but no position data loaded", 0xFFFFFFFF)
+                    msg("warn", "Detected keyword but no position data loaded")
                     printStringNow("~y~" .. goldMatch.name .. "~n~~w~Detected but no data loaded", 3000)
                 else
                     local shortcutLine = goldMatch.shortcut ~= "" and "~g~" .. goldMatch.shortcut .. "~w~ to go there" or ""
                     printStringNow("~y~" .. goldMatch.name .. "~n~~w~NOT SAVED!~n~" .. shortcutLine, 4000)
-                    sampAddChatMessage("{FFA500}[GoldpotDB]{FFFFFF} Detected: {FFFF00}" .. goldMatch.name, 0xFFFFFFFF)
-                    sampAddChatMessage("{FFA500}⚠ Not saved yet! {FFFFFF}Use " .. (goldMatch.shortcut ~= "" and goldMatch.shortcut .. " to get there, then " or "") .. "/spos " .. goldMatch.name, 0xFFFFFFFF)
+                    msg("highlight", ("Detected: %s"):format(goldMatch.name))
+                    msg("warn", ("Not saved! Use %s/spos %s"):format(
+                        goldMatch.shortcut ~= "" and goldMatch.shortcut .. " to get there, then " or "",
+                        goldMatch.name))
                     playBeep(660, 150)
                     playBeep(880, 200)
                 end
@@ -3047,7 +3112,7 @@ function sampev.onServerMessage(color, text)
                 lastHintedName = hintLocation
                 lastHintedSavedIndex = nil
                 lastHintedGoldpot = newEntry
-                sampAddChatMessage("{FF6600}[BagSpot]{FFFFFF} Unknown hint added to DB as NEW: {FFFF00}" .. hintLocation, 0xFFFFFFFF)
+                msg("warn", ("Unknown hint added as NEW: %s"):format(hintLocation))
                 printStringNow("~y~" .. hintLocation .. "~n~~c~NEW~w~: Check Goldpot DB", 3000)
             end
             saveHintAnalytics()
@@ -3056,7 +3121,7 @@ function sampev.onServerMessage(color, text)
         
         -- 60% confidence threshold
         if matchRatio < 0.6 then
-            sampAddChatMessage(string.format("{FFFF00}[Focus]{FFFFFF} Low confidence (%.0f%%) — adding to NEW tab", matchRatio * 100), 0xFFFFFFFF)
+            msg("highlight", ("Low confidence (%.0f%%) — adding to NEW tab"):format(matchRatio * 100))
             
             -- Also add to NEW goldpot DB since weak match = likely different location
             local hintNorm = normalizeNameDB(hintLocation)
@@ -3090,7 +3155,7 @@ function sampev.onServerMessage(color, text)
             saveHintAnalytics()
             lastHintedSavedIndex = nil
             printStringNow("~y~" .. hintLocation .. "~n~~c~NEW~w~: Added to Goldpot DB", 3000)
-            sampAddChatMessage("{FF6600}[BagSpot]{FFFFFF} Added to NEW tab: {FFFF00}" .. hintLocation, 0xFFFFFFFF)
+            msg("warn", ("Added to NEW tab: %s"):format(hintLocation))
             return
         end
         
@@ -3112,11 +3177,11 @@ function sampev.onServerMessage(color, text)
         playBeep(660, 150)
         playBeep(880, 200)
         
-        sampAddChatMessage("{FFA500}[Detected]{FFFFFF} Position: {FFFF00}" .. targetPos.name, 0xFFFFFFFF)
+        msg("highlight", ("Position: %s"):format(targetPos.name))
         local px2, py2, pz2 = getCharCoordinates(PLAYER_PED)
         if px2 then
-            sampAddChatMessage("{AAAAAA}Distance: {FFFF00}" .. string.format("%.0fm", 
-                calculateDistance(px2, py2, pz2, targetPos.x, targetPos.y, targetPos.z)), 0xFFFFFFFF)
+            msg("passive", ("Distance: %.0fm"):format(
+                calculateDistance(px2, py2, pz2, targetPos.x, targetPos.y, targetPos.z)))
         end
         
         -- Auto-focus (only if enabled in menu)
@@ -3140,9 +3205,22 @@ function sampev.onServerMessage(color, text)
             pendingSearchTerms = searchTerms
             targetPositionName = targetPos.name
             
-            sampAddChatMessage("{00FF00}[AutoTP]{FFFFFF} Detected: {FFFF00}" .. keyword, 0xFFFFFFFF)
-            sampAddChatMessage("{00BFFF}[AutoTP]{FFFFFF} Teleporting in " .. currentTeleportDelay .. " seconds...", 0xFFFFFFFF)
+            msg("found", ("Detected: %s"):format(keyword))
+            msg("status", ("Teleporting in %d seconds..."):format(currentTeleportDelay))
             printStringNow("~g~EVENT DETECTED!~n~~y~" .. keyword .. "~n~~w~Preparing to teleport...", 3000)
+        end
+    end
+
+    -- Spectator detection — check for "spectating" or "inspect" messages
+    local lower = text:lower()
+    if lower:find("spectat", 1, true) or lower:find("inspect", 1, true) then
+        local stripped = stripColorCodes(text)
+        local myName = ""
+        local success, name = sampGetPlayerName(sampGetLocalPlayerId())
+        if success then myName = name:lower() end
+        if lower:find("you", 1, true) or (myName ~= "" and lower:find(myName, 1, true)) then
+            msg("warn", ("Spectator detected: %s"):format(stripped))
+            playBeep(440, 200)
         end
     end
 end

@@ -5,6 +5,16 @@ script_version("2.2")
 require "lib.moonloader"
 local sampev = require 'lib.samp.events'
 
+local C = { GOLD = "{BFA100}", GREEN = "{33AA33}", CYAN = "{33CCFF}", GRAY = "{888888}", RED = "{FF5555}", WHITE = "{FFFFFF}", YELLOW = "{FFFF00}" }
+local PREFIX = C.GOLD .. "[M]" .. C.WHITE .. " > "
+
+local function msg(kind, text)
+    if isSampAvailable() then
+        local colors = { found = C.GREEN, scan = C.GOLD, warn = C.YELLOW, status = C.CYAN, error = C.RED, info = C.WHITE, debug = C.GRAY }
+        sampAddChatMessage(PREFIX .. (colors[kind] or colors.info) .. text, 0xFFFFFFFF)
+    end
+end
+
 local DEBUG = false
 local ANSWER_CMD = "/ans"
 local pendingAnswer = nil
@@ -77,7 +87,7 @@ end
 
 function sampev.onServerMessage(color, text)
     if DEBUG then
-        sampAddChatMessage("{808080}[DEBUG] {FFFFFF}" .. text, 0xFFFFFF)
+        msg("debug", text)
     end
 
     if not (text:find("Math:", 1, true) and text:lower():find("solve", 1, true)) then
@@ -87,19 +97,19 @@ function sampev.onServerMessage(color, text)
     local equation = extractEquationFromMessage(text)
     if not equation then
         if DEBUG then
-            sampAddChatMessage("{FF6600}[Info] Could not extract equation from: {FFFFFF}" .. stripColorCodes(text), 0xFFFFFF)
+            msg("warn", "Could not extract equation from: " .. stripColorCodes(text))
         end
         return
     end
 
     if DEBUG then
-        sampAddChatMessage("{FFFF00}[Found] Equation: {FFFFFF}" .. equation, 0xFFFFFF)
+        msg("info", "Equation: " .. equation)
     end
 
     local func, loadErr = load("return " .. equation)
     if not func then
         if DEBUG then
-            sampAddChatMessage("{FF0000}[Error] load() failed: {FFFFFF}" .. tostring(loadErr), 0xFFFFFF)
+            msg("error", "load() failed: " .. tostring(loadErr))
         end
         return
     end
@@ -107,7 +117,7 @@ function sampev.onServerMessage(color, text)
     local ok, result = pcall(func)
     if not ok then
         if DEBUG then
-            sampAddChatMessage("{FF0000}[Error] calc failed: {FFFFFF}" .. tostring(result), 0xFFFFFF)
+            msg("error", "calc failed: " .. tostring(result))
         end
         return
     end
@@ -119,5 +129,5 @@ function sampev.onServerMessage(color, text)
     pendingSendTime = os.clock() + delay
     pendingEquation = equation
 
-    sampAddChatMessage("{00FF00}[Math]{FFFFFF} " .. answer .. " (" .. equation .. ", " .. delay .. "s delay)", 0xFFFFFFFF)
+    msg("found", ("%d \183 %s \183 %ds delay"):format(answer, equation, delay))
 end
