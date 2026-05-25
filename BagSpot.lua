@@ -3216,8 +3216,11 @@ function sampev.onServerMessage(color, text)
     if lower:find("spectat", 1, true) or lower:find("inspect", 1, true) then
         local stripped = stripColorCodes(text)
         local myName = ""
-        local success, name = sampGetPlayerName(sampGetLocalPlayerId())
-        if success then myName = name:lower() end
+        local result, playerId = sampGetPlayerIdByCharHandle(PLAYER_PED)
+        if result then
+            local success, name = sampGetPlayerName(playerId)
+            if success then myName = name:lower() end
+        end
         if lower:find("you", 1, true) or (myName ~= "" and lower:find(myName, 1, true)) then
             msg("warn", ("Spectator detected: %s"):format(stripped))
             playBeep(440, 200)

@@ -1,5 +1,5 @@
-[05:01:56.723364] (system)	Session started.
-[05:01:56.724363] (debug)	Module handle: 72A10000
+[05:05:05.240032] (system)	Session started.
+[05:05:05.240032] (debug)	Module handle: 71EF0000
 
 MoonLoader v.026.5-beta loaded.
 Developers: FYP, hnnssy, EvgeN 1137
@@ -7,39 +7,35 @@ Developers: FYP, hnnssy, EvgeN 1137
 Copyright (c) 2016, BlastHack Team
 http://blast.hk/moonloader/
 
-[05:01:56.724363] (info)	Working directory: D:\Games\Gta San Andreas\GTA San Andreas\moonloader
-[05:01:56.724363] (debug)	FP Control: 0009001F
-[05:01:56.724363] (debug)	Game: GTA SA 1.0.0.0 US
-[05:01:56.724363] (system)	Installing pre-game hooks...
-[05:01:56.730360] (system)	Hooks installed.
-[05:01:59.958667] (debug)	Initializing opcode handler table
-[05:01:59.958667] (debug)	package.path = D:\Games\Gta San Andreas\GTA San Andreas\moonloader\lib\?.lua;D:\Games\Gta San Andreas\GTA San Andreas\moonloader\lib\?\init.lua;D:\Games\Gta San Andreas\GTA San Andreas\moonloader\?.lua;D:\Games\Gta San Andreas\GTA San Andreas\moonloader\?\init.lua;.\?.lua;D:\Games\Gta San Andreas\GTA San Andreas\moonloader\lib\?.luac;D:\Games\Gta San Andreas\GTA San Andreas\moonloader\lib\?\init.luac;D:\Games\Gta San Andreas\GTA San Andreas\moonloader\?.luac;D:\Games\Gta San Andreas\GTA San Andreas\moonloader\?\init.luac;.\?.luac
-[05:01:59.958667] (debug)	package.cpath = D:\Games\Gta San Andreas\GTA San Andreas\moonloader\lib\?.dll;
-[05:01:59.969661] (system)	Loading script 'D:\Games\Gta San Andreas\GTA San Andreas\moonloader\antifall.lua'...
-[05:01:59.969661] (debug)	New script: 01BD459C
-[05:01:59.971660] (system)	antifall.lua: Loaded successfully.
-[05:01:59.971660] (system)	Loading script 'D:\Games\Gta San Andreas\GTA San Andreas\moonloader\automath.lua'...
-[05:01:59.971660] (debug)	New script: 01BD51DC
-[05:01:59.981654] (system)	Auto Math Detector: Loaded successfully.
-[05:01:59.981654] (system)	Loading script 'D:\Games\Gta San Andreas\GTA San Andreas\moonloader\autostop.lua'...
-[05:01:59.981654] (debug)	New script: 01BD4BBC
-[05:01:59.988649] (system)	AutoStop: Loaded successfully.
-[05:01:59.988649] (system)	Loading script 'D:\Games\Gta San Andreas\GTA San Andreas\moonloader\BagSpot.lua'...
-[05:01:59.988649] (debug)	New script: 01BD4414
-[05:02:00.024627] (system)	BagSpot: Loaded successfully.
-[05:02:00.024627] (system)	Loading script 'D:\Games\Gta San Andreas\GTA San Andreas\moonloader\MoneybagHunter.lua'...
-[05:02:00.025627] (debug)	New script: 01BD4724
-[05:02:00.037619] (system)	Moneybag Hunter: Loaded successfully.
-[05:02:00.037619] (system)	Loading script 'D:\Games\Gta San Andreas\GTA San Andreas\moonloader\speedboost.lua'...
-[05:02:00.037619] (debug)	New script: 01BD4D44
-[05:02:00.041616] (system)	SpeedBoost: Loaded successfully.
-[05:02:06.403681] (system)	Installing post-load hooks...
-[05:02:06.403681] (system)	Hooks installed.
-[05:04:13.922857] (system)	Unloading...
-[05:04:13.922857] (system)	antifall.lua: Script terminated. (01BD459C)
-[05:04:13.923850] (system)	Auto Math Detector: Script terminated. (01BD51DC)
-[05:04:13.924850] (system)	AutoStop: Script terminated. (01BD4BBC)
-[05:04:13.924850] (system)	BagSpot: Script terminated. (01BD4414)
-[05:04:13.928846] (system)	Moneybag Hunter: Script terminated. (01BD4724)
-[05:04:13.929846] (system)	SpeedBoost: Script terminated. (01BD4D44)
-[05:04:13.934844] (system)	Session terminated.
+[05:05:05.240032] (info)	Working directory: C:\Games\GTA San Andreas\moonloader
+[05:05:05.240032] (debug)	FP Control: 0009001F
+[05:05:05.240032] (debug)	Game: GTA SA 1.0.0.0 US
+[05:05:05.240032] (system)	Installing pre-game hooks...
+[05:05:05.242027] (system)	Hooks installed.
+[05:05:07.922224] (debug)	Initializing opcode handler table
+[05:05:07.923222] (debug)	package.path = C:\Games\GTA San Andreas\moonloader\lib\?.lua;C:\Games\GTA San Andreas\moonloader\lib\?\init.lua;C:\Games\GTA San Andreas\moonloader\?.lua;C:\Games\GTA San Andreas\moonloader\?\init.lua;.\?.lua;C:\Games\GTA San Andreas\moonloader\lib\?.luac;C:\Games\GTA San Andreas\moonloader\lib\?\init.luac;C:\Games\GTA San Andreas\moonloader\?.luac;C:\Games\GTA San Andreas\moonloader\?\init.luac;.\?.luac
+[05:05:07.923222] (debug)	package.cpath = C:\Games\GTA San Andreas\moonloader\lib\?.dll;
+[05:05:07.926343] (system)	Loading script 'C:\Games\GTA San Andreas\moonloader\antifall.lua'...
+[05:05:07.926343] (debug)	New script: 0F9C6E4C
+[05:05:07.928338] (system)	antifall.lua: Loaded successfully.
+[05:05:07.928338] (system)	Loading script 'C:\Games\GTA San Andreas\moonloader\automath.lua'...
+[05:05:07.928338] (debug)	New script: 0F9AF3C4
+[05:05:07.934840] (system)	Auto Math Detector: Loaded successfully.
+[05:05:07.935847] (system)	Loading script 'C:\Games\GTA San Andreas\moonloader\autostop.lua'...
+[05:05:07.935847] (debug)	New script: 0F9AEF2C
+[05:05:07.938082] (system)	AutoStop: Loaded successfully.
+[05:05:07.939075] (system)	Loading script 'C:\Games\GTA San Andreas\moonloader\BagSpot.lua'...
+[05:05:07.939075] (debug)	New script: 0F9AF0B4
+[05:05:07.955111] (system)	BagSpot: Loaded successfully.
+[05:05:07.955111] (system)	Loading script 'C:\Games\GTA San Andreas\moonloader\MoneybagHunter.lua'...
+[05:05:07.955111] (debug)	New script: 0F9AF23C
+[05:05:07.961106] (system)	Moneybag Hunter: Loaded successfully.
+[05:05:13.954863] (system)	Installing post-load hooks...
+[05:05:13.954863] (system)	Hooks installed.
+[06:30:28.059186] (system)	Unloading...
+[06:30:28.060185] (system)	antifall.lua: Script terminated. (0F9C6E4C)
+[06:30:28.060185] (system)	Auto Math Detector: Script terminated. (0F9AF3C4)
+[06:30:28.061188] (system)	AutoStop: Script terminated. (0F9AEF2C)
+[06:30:28.061188] (system)	BagSpot: Script terminated. (0F9AF0B4)
+[06:30:28.063273] (system)	Moneybag Hunter: Script terminated. (0F9AF23C)
+[06:30:28.079065] (system)	Session terminated.
