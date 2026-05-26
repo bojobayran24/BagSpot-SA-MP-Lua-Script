@@ -14,7 +14,7 @@
     │  • Goldpot database matching (NEW tab, smart scoring)                   │
     │  • Sound alerts and proximity pulse for nearby moneybags                │
     │                                                                         │
-    │  Hotkey: F10 - Menu | F9 - Toggle ESP                                   │
+    │  Hotkey: F10 - Menu                                                        │
     │  Commands: /spos, /lpos, /poslist, /uc, /autotp, /clearfocus            │
     └─────────────────────────────────────────────────────────────────────────┘
 ]]
@@ -55,7 +55,7 @@ local CONFIG = {
     BACKUP_FILE = getWorkingDirectory() .. "\\config\\SavedPositions_Backup.json",
     ROUTES_FILE = getWorkingDirectory() .. "\\config\\SavedRoutes.json",
     HOTKEY = vkeys.VK_F10,
-    ESP_HOTKEY = vkeys.VK_F9,
+    --ESP_HOTKEY = vkeys.VK_F9,
     WINDOW_TITLE = "BagSpot",
     MAX_NAME_LENGTH = 64,
     TELEPORT_COOLDOWN = 2,
@@ -1933,7 +1933,7 @@ local function renderMenu()
     
     local espButtonColor = showESP[0] and imgui.ImVec4(0.2, 0.8, 0.2, 1.0) or imgui.ImVec4(0.5, 0.5, 0.5, 0.6)
     imgui.PushStyleColor(imgui.Col.Button, espButtonColor)
-    if imgui.Button(showESP[0] and "ESP: ON (F9)" or "ESP: OFF (F9)", imgui.ImVec2(130, 25)) then
+    if imgui.Button(showESP[0] and "ESP: ON" or "ESP: OFF", imgui.ImVec2(130, 25)) then
         showESP[0] = not showESP[0]
     end
     imgui.PopStyleColor()
@@ -2695,18 +2695,15 @@ function main()
         doUpdateCoords()
     end)
     
-    msg("info", "F10 menu | F9 ESP | /uc /spos /lpos /poslist /autotp /clearfocus")
+    msg("info", "F10 menu | /uc /spos /lpos /poslist /autotp /clearfocus")
     if autoTeleportEnabled[0] then
         msg("found", "Auto-Teleport is enabled")
     end
     
     -- Main loop
     local keyPressed = false
-    local espKeyPressed = false
     while true do
         wait(0)
-        
-
 
         -- Update distance cache periodically for performance (wrapped: crash-safe)
         pcall(updateDistanceCache)
@@ -2846,17 +2843,6 @@ function main()
             teleportCooldown[0] = math.ceil(CONFIG.TELEPORT_COOLDOWN - timeSinceLast)
         else
             teleportCooldown[0] = 0
-        end
-        
-        -- Toggle ESP with F9
-        local isEspKeyPressed = isKeyDown(vkeys.VK_F9)
-        if isEspKeyPressed and not espKeyPressed and not sampIsChatInputActive() and not sampIsDialogActive() then
-            showESP[0] = not showESP[0]
-            local status = showESP[0] and "enabled" or "disabled"
-            msg("found", ("Hunt Mode %s"):format(status))
-            espKeyPressed = true
-        elseif not isEspKeyPressed then
-            espKeyPressed = false
         end
         
         -- Toggle menu with F10
@@ -3217,9 +3203,9 @@ function sampev.onServerMessage(color, text)
         local stripped = stripColorCodes(text)
         local myName = ""
         local result, playerId = sampGetPlayerIdByCharHandle(PLAYER_PED)
-        if result then
-            local success, name = sampGetPlayerName(playerId)
-            if success then myName = name:lower() end
+        if result and type(sampGetPlayerNickname) == "function" then
+            local name = sampGetPlayerNickname(playerId)
+            if name and name ~= "" then myName = name:lower() end
         end
         if lower:find("you", 1, true) or (myName ~= "" and lower:find(myName, 1, true)) then
             msg("warn", ("Spectator detected: %s"):format(stripped))
